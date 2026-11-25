@@ -95,33 +95,64 @@ object JwxtClient {
             conn.connectTimeout = 15000
             conn.readTimeout = 20000
             conn.instanceFollowRedirects = false
+            conn.useCaches = false
+            // 服务器响应常为 connection: close，显式声明避免流被提前判定中断
+            conn.setRequestProperty("Connection", "close")
             conn.setRequestProperty("User-Agent", UA)
+            conn.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/json,*/*;q=0.8")
             conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9")
             if (cookies.isNotEmpty()) conn.setRequestProperty("Cookie", cookieHeader())
             return conn
         }
 
+        /**
+         * 读取响应。教务系统偶发在 connection: close 下不发送完整 body，
+         * 这里容错：读到多少用多少，不因流异常丢掉已获取的内容。
+         */
         internal fun readText(conn: HttpURLConnection): String {
-            val code = conn.responseCode
+            var code = 0
+            runCatching { code = conn.responseCode }
             captureCookies(conn)
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val text = stream?.use { s ->
-                val buf = ByteArrayOutputStream()
-                s.copyTo(buf)
-                buf.toByteArray()
-            }?.toString(Charsets.UTF_8) ?: ""
-            return if (code in 200..399) text else ""
+            val stream = runCatching {
+                if (code in 200..299) conn.inputStream else conn.errorStream
+            }.getOrNull()
+            val bytes = runCatching {
+                stream?.use { s ->
+                    val buf = ByteArrayOutputStream()
+                    val tmp = ByteArray(8192)
+                    while (true) {
+                        val n = s.read(tmp)
+                        if (n <= 0) break
+                        buf.write(tmp, 0, n)
+                    }
+                    buf.toByteArray()
+                }
+            }.getOrElse { e ->
+                // 流被中断时，尽力返回已读部分（拿不到就返回空）
+                ByteArray(0)
+            } ?: ByteArray(0)
+            val text = bytes.toString(Charsets.UTF_8)
+            return if (code in 200..399 || text.isNotEmpty()) text else ""
         }
 
         internal fun readBytes(conn: HttpURLConnection): ByteArray {
             captureCookies(conn)
-            val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else null
-            return stream?.use { s ->
-                val buf = ByteArrayOutputStream()
-                s.copyTo(buf)
-                buf.toByteArray()
-            } ?: ByteArray(0)
+            val code = runCatching { conn.responseCode }.getOrDefault(0)
+            val stream = runCatching {
+                if (code in 200..299) conn.inputStream else null
+            }.getOrNull() ?: return ByteArray(0)
+            return runCatching {
+                stream.use { s ->
+                    val buf = ByteArrayOutputStream()
+                    val tmp = ByteArray(8192)
+                    while (true) {
+                        val n = s.read(tmp)
+                        if (n <= 0) break
+                        buf.write(tmp, 0, n)
+                    }
+                    buf.toByteArray()
+                }
+            }.getOrDefault(ByteArray(0))
         }
     }
 
@@ -152,6 +183,10 @@ object JwxtClient {
 
     /**
      * 执行登录。成功返回 Ok(Unit) 并保留 Cookie 供抓取。
+     *
+     * 与网页登录按钮 submitForm1() 完全一致：
+     *   encoded = base64(学号) + "%%%" + base64(密码)
+     *   然后 POST /jsxsd/xk/LoginToXk。
      */
     fun login(
         session: Session,
@@ -163,21 +198,7 @@ object JwxtClient {
             return JwResult.Err(extranetBlockedHint().ifBlank { "当前时段不允许使用外网登录" })
         }
         return try {
-            // 1) 取加密参数 scode#sxh
-            val seedConn = session.open("/Logon.do?method=logon&flag=sess", "POST")
-            seedConn.doOutput = true
-            seedConn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-            seedConn.outputStream.use { it.write(ByteArray(0)) }
-            val seed = session.readText(seedConn)
-            seedConn.disconnect()
-
-            if (seed.isBlank() || seed == "no" || !seed.contains("#")) {
-                return JwResult.Err("获取登录参数失败，可能是通道不匹配或服务器维护中")
-            }
-
-            val encoded = encodeLogin(account, password, seed)
-
-            // 2) 提交登录
+            val encoded = b64(account) + "%%%" + b64(password)
             val body = buildString {
                 append("loginMethod=").append(enc("LoginToXk"))
                 append("&userAccount=").append(enc(account))
@@ -187,65 +208,66 @@ object JwxtClient {
             }
             val conn = session.open("/xk/LoginToXk", "POST")
             conn.doOutput = true
+            conn.instanceFollowRedirects = false
             conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
             conn.setRequestProperty("Referer", session.channel.base + "/")
-            conn.instanceFollowRedirects = false
-            conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-            val code = conn.responseCode
-            val location = conn.getHeaderField("Location")
+            conn.setRequestProperty("Origin", session.channel.base.substringBefore("/jsxsd"))
+            val payload = body.toByteArray(Charsets.UTF_8)
+            conn.setFixedLengthStreamingMode(payload.size)
+            conn.outputStream.use { it.write(payload) }
+
+            val code = runCatching { conn.responseCode }.getOrDefault(0)
+            val location = conn.getHeaderField("Location") ?: ""
             val text = session.readText(conn)
             conn.disconnect()
 
-            // 判定成功：302 到主框架页，或页面里出现课表/退出字样
-            val success = (code in 300..399) || text.contains("xsMain") ||
-                text.contains("欢迎") || text.contains("退出")
-            val failHint = Regex("（([^）]*)）")
-                .find(text)?.groupValues?.get(1)
-                ?: Regex("alert\\(['\"]([^'\"]+)['\"]\\)").find(text)?.groupValues?.get(1)
+            // 成功：302 跳转主框架，或页面出现主界面特征
+            val redirected = code in 300..399
+            val looksLoggedIn = text.contains("xsMain") || text.contains("退出系统") ||
+                text.contains("jxgl") || text.contains("课表")
+            val hasLoginForm = text.contains("id=\"loginForm\"") || text.contains("btn-login")
 
-            if (success) {
-                JwResult.Ok(Unit)
-            } else {
-                JwResult.Err(
-                    when {
-                        failHint != null -> failHint
-                        text.contains("验证码") -> "验证码错误，请重新输入"
-                        text.contains("密码") || text.contains("口令") -> "学号或密码错误"
-                        code == 200 -> "登录失败：账号、密码或验证码不正确"
-                        else -> "登录失败（HTTP $code）"
-                    }
-                )
+            if (redirected || (looksLoggedIn && !hasLoginForm)) {
+                return JwResult.Ok(Unit)
             }
+
+            // 失败：从返回页里提取学校给的提示
+            val hint = extractMessage(text)
+            return JwResult.Err(
+                when {
+                    hint != null -> hint
+                    text.contains("验证码") -> "验证码错误，请重新输入"
+                    text.contains("密码") || text.contains("用户名") -> "学号或密码不正确"
+                    code == 0 -> "连接被中断，请重试（可能是网络不稳定）"
+                    else -> "登录失败（HTTP $code）"
+                }
+            )
         } catch (e: Exception) {
             JwResult.Err("连接失败：${e.message ?: e.javaClass.simpleName}")
         }
     }
 
-    /**
-     * 金智 jsxsd 的 encoded 编码：
-     * code = 学号 + "%%%" + 密码；前 20 个字符逐字插入 scode 的若干前缀再切走。
-     */
-    private fun encodeLogin(account: String, password: String, seed: String): String {
-        var scode = seed.substringBefore("#")
-        val sxh = seed.substringAfter("#")
-        val code = "$account%%%$password"
-        val sb = StringBuilder()
-        var i = 0
-        while (i < code.length) {
-            if (i < 20) {
-                val n = if (i < sxh.length) (sxh[i] - '0') else 0
-                sb.append(code[i])
-                val take = n.coerceIn(0, scode.length)
-                sb.append(scode.substring(0, take))
-                scode = scode.substring(take)
-            } else {
-                sb.append(code.substring(i))
-                break
+    /** 从登录失败页里提取中文提示（如“验证码错误!!”）。 */
+    private fun extractMessage(html: String): String? {
+        val plain = html.replace(Regex("<script[^>]*>.*?</script>", RegexOption.DOT_MATCHES_ALL), " ")
+            .replace(Regex("<style[^>]*>.*?</style>", RegexOption.DOT_MATCHES_ALL), " ")
+        val patterns = listOf(
+            Regex("([\\u4e00-\\u9fa5]{0,10}(?:错误|不正确|失败|已过期|不存在)[!！]{0,2})"),
+            Regex("alert\\(['\"]([^'\"]+)['\"]\\)")
+        )
+        for (p in patterns) {
+            val m = p.find(plain)
+            if (m != null) {
+                val s = m.groupValues[1].trim()
+                if (s.length in 2..30 && !s.contains("计算异常")) return s
             }
-            i++
         }
-        return sb.toString()
+        return null
     }
+
+    /** 标准 Base64（对应网页 encodeInp）。 */
+    private fun b64(s: String): String =
+        android.util.Base64.encodeToString(s.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
 
     private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 

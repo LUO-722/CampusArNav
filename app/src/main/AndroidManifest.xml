@@ -10,13 +10,25 @@
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
     <uses-feature android:name="android.hardware.sensor.compass" android:required="false" />
 
+    <!-- 教务系统为 http://（明文），需要显式允许 -->
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher_fg"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.CampusAr">
 
+        <activity
+            android:name=".LoginActivity"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <activity
             android:name=".CalibrateActivity"
             android:screenOrientation="portrait"
@@ -38,12 +50,7 @@
             android:name=".MainShellActivity"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:screenOrientation="portrait"

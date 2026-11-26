@@ -26,39 +26,13 @@ import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.net.JwxtClient
 import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.applySystemBarInsets
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.button
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.card
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.color
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.dp
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.editText
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.rounded
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.textView
 
 /**
@@ -284,7 +258,7 @@ class LoginActivity : AppCompatActivity() {
             } else {
                 "现在 ${AuthStore.nowText()}，外网开放时段内（${AuthStore.wanWindowText()}），可以直接登录。"
             }
-            hint.setTextColor(if (blocked) Color.parseColor("#E8447A") else Color.parseColor("#E8447A"))
+            hint.setTextColor(if (blocked) Color.parseColor("#E8447A") else Color.parseColor("#2E7FA8"))
         }
     }
 

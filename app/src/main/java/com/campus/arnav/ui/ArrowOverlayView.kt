@@ -171,9 +171,9 @@ class ArrowOverlayView @JvmOverloads constructor(
         val unit = 42f * dp * scale
 
         // 外发光：两层半透明三角
-        fill.color = Color.argb(55, 55, 224, 200)
+        fill.color = Color.argb(55, 232, 68, 122)
         drawArrowShape(canvas, x, cy, unit * 1.45f)
-        fill.color = Color.argb(110, 55, 224, 200)
+        fill.color = Color.argb(110, 232, 68, 122)
         drawArrowShape(canvas, x, cy, unit * 1.18f)
         // 主体
         fill.color = Color.parseColor("#E8447A")
@@ -260,18 +260,18 @@ class ArrowOverlayView @JvmOverloads constructor(
             arrowPath.close()
 
             // 地面上的柔光
-            stroke.color = Color.argb(alpha / 5, 55, 224, 200)
+            stroke.color = Color.argb(alpha / 5, 232, 68, 122)
             stroke.strokeWidth = 9f * dp
             stroke.style = Paint.Style.STROKE
             canvas.drawPath(arrowPath, stroke)
             stroke.style = Paint.Style.STROKE
 
             // 主体（半透明填充，能看见路面）
-            fill.color = Color.argb((alpha * 0.72f).toInt(), 55, 224, 200)
+            fill.color = Color.argb((alpha * 0.72f).toInt(), 232, 68, 122)
             canvas.drawPath(arrowPath, fill)
 
             // 描边，保证在亮路面/草地上也看得清
-            stroke.color = Color.argb(alpha, 230, 255, 250)
+            stroke.color = Color.argb(alpha, 255, 255, 255)
             stroke.strokeWidth = 2.2f * dp
             canvas.drawPath(arrowPath, stroke)
 

@@ -487,17 +487,42 @@ object JwxtClient {
         return if (close > 0) seg.substring(0, close) else seg
     }
 
-    /** 一格里可能排了好几门课，每门课是一个 div.kbcontent（详细版，含教师/节次/教室）。 */
+    /**
+     * 一格里可能排了好几门课。强智课表每个 <td> 里每门课有 3 个 div，id 形如「<hash>-<列>-1/2/4」：
+     * -1 是 kbcontent1 摘要，-2 是 kbcontent 正文（教师/节次/教室/通知单编号），
+     * -4 是 kbcontent 附加正文（与 -2 重复）。因此按 id 前缀分组，每组只取 -2，
+     * 缺 -2 时才退回 -4；-1 不参与，否则同一门课会被拼两遍、raw 出现重复。
+     */
     private fun courseBlocks(cell: String): List<List<String>> {
         val noImg = cell.replace(
             Regex("<div[^>]*class=['\"]item-box['\"][^>]*>[\\s\\S]*?</div>", RegexOption.IGNORE_CASE),
             ""
         )
-        val out = ArrayList<List<String>>()
+        val order = LinkedHashSet<String>()
+        val main = HashMap<String, List<String>>()
+        val extra = HashMap<String, List<String>>()
         for (m in Regex("<div[^>]*class=\"kbcontent\"[^>]*>([\\s\\S]*?)</div>", RegexOption.IGNORE_CASE)
             .findAll(noImg)) {
-            val lines = plain(m.groupValues[1]).split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+            val open = m.value.substringBefore('>')
+            val id = Regex("\\bid\\s*=\\s*[\"']([^\"']+)[\"']").find(open)
+                ?.groupValues?.get(1).orEmpty()
+            // 分组键 = id 去掉末尾的 -1/-2/-4，同一门课的多份 div 归到一组
+            val dash = id.lastIndexOf('-')
+            val group = if (dash > 0) id.substring(0, dash) else id
+            val lines = plain(m.groupValues[1]).split("\n")
+                .map { normalizeWorkload(it.trim()) }
+                .filter { it.isNotEmpty() }
             if (lines.isEmpty()) continue
+            order.add(group)
+            if (id.endsWith("-4")) {
+                if (!extra.containsKey(group)) extra[group] = lines
+            } else {
+                if (!main.containsKey(group)) main[group] = lines
+            }
+        }
+        val out = ArrayList<List<String>>()
+        for (group in order) {
+            val lines = main[group] ?: extra[group] ?: continue
             // 同一格里的多门课用「----------------------」分隔，必须拆开，否则只会剩第一门
             var cur = ArrayList<String>()
             for (ln in lines) {
@@ -511,6 +536,15 @@ object JwxtClient {
             if (cur.isNotEmpty()) out.add(cur)
         }
         return out
+    }
+
+    /**
+     * 教务把工作量写成自我重复的一行，如「((讲课:72),讲课:72)」「((讲课:24,实验:32),讲课:24,实验:32)」。
+     * 显示/留档前压回「(讲课:72)」；只影响 raw 文本，不动任何主字段。
+     */
+    private fun normalizeWorkload(line: String): String {
+        val m = Regex("^\\(\\(([^()]*)\\),\\1\\)$").find(line) ?: return line
+        return "(" + m.groupValues[1] + ")"
     }
 
     /** 把一格里的一段文字变成课程；节次以 [xx-yy节] 为准，缺失时用大节默认值。 */

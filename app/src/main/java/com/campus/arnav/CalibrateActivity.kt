@@ -18,8 +18,6 @@ import androidx.core.content.ContextCompat
 import com.campus.arnav.core.PoiStore
 import com.campus.arnav.core.RouteRepository
 import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.applySystemBarInsets
 import java.util.Locale
 

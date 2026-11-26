@@ -54,7 +54,8 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(ctx.color(R.color.bg_dark))
+        // 透明底：露出 MainShell 的粉蓝渐变（四栏保持一致）
+        setBackgroundColor(android.graphics.Color.TRANSPARENT)
         setPadding(ctx.dp(16), ctx.dp(12), ctx.dp(16), ctx.dp(8))
 
         addView(buildHeader())

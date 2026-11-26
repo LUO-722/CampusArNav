@@ -36,8 +36,9 @@ class TimetableGridView @JvmOverloads constructor(
     var onActivityTap: ((Activity) -> Unit)? = null
 
     private val density = resources.displayMetrics.density
-    private val periodW = 56 * density
-    private val dayW = 54 * density
+    private val periodW = 52 * density
+    /** 星期列宽按实际可用宽度算：原来写死 54dp，7 列会把「日」挤出屏幕右边。 */
+    private var dayW = 44 * density
     private val headerH = 30 * density
     private val rowH = 54 * density
 
@@ -64,14 +65,15 @@ class TimetableGridView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
     }
     private val courseNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
+        // pastel 浅底块：用深色字，白字在浅粉浅蓝上几乎看不见
+        color = 0xFF3D3340.toInt()
         textSize = 10.5f * density
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
     }
     private val courseLocPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textSize = 9 * density
+        color = 0xB33D3340.toInt()
+        textSize = 8.5f * density
         textAlign = Paint.Align.CENTER
     }
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
@@ -101,7 +103,12 @@ class TimetableGridView @JvmOverloads constructor(
     private var lastTap = 0L
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val w = (periodW + dayW * 7).toInt()
+        // 宽度铺满父容器：periodW 固定给节次+时间，剩下 7 天平分
+        val avail = MeasureSpec.getSize(widthMeasureSpec)
+        if (avail > 0) {
+            dayW = ((avail - periodW) / 7f).coerceAtLeast(34 * density)
+        }
+        val w = (periodW + dayW * 7).toInt().coerceAtMost(if (avail > 0) avail else Int.MAX_VALUE)
         val h = (headerH + rowH * 12).toInt()
         setMeasuredDimension(w, h)
     }

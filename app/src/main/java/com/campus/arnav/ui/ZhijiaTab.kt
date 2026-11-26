@@ -43,7 +43,8 @@ class ZhijiaTab(
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(ctx.color(R.color.bg_dark))
+        // 不铺纯色底，让 MainShell 的 #FFF1F7→#EDF7FF 渐变透出来
+        setBackgroundColor(Color.TRANSPARENT)
         setPadding(ctx.dp(16), ctx.dp(12), ctx.dp(16), ctx.dp(8))
         addView(textView(ctx, "智嘉", 24f, ctx.color(R.color.text_primary), bold = true))
         addView(textView(ctx, "复制通知 → 提取活动 → 冲突处理 → 进课表", 12f, ctx.color(R.color.text_secondary)))

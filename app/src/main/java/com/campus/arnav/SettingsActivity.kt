@@ -29,43 +29,14 @@ import com.campus.arnav.net.JwxtClient
 import com.campus.arnav.net.LlmClient
 import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.applySystemBarInsets
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.button
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.card
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.color
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.confirm
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.dp
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.editText
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.kvRow
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
-import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.textView
 
 /**
@@ -427,7 +398,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun paintBadge(v: TextView, ready: Boolean) {
         v.text = if (ready) "已配置" else "未配置"
-        v.setTextColor(if (ready) Color.parseColor("#E8447A") else Color.parseColor("#E8447A"))
+        v.setTextColor(if (ready) Color.parseColor("#E8447A") else Color.parseColor("#2E7FA8"))
         v.background = GradientDrawable().apply {
             cornerRadius = dp(9).toFloat()
             setColor(if (ready) Color.parseColor("#FFE3EE") else Color.parseColor("#EAF6FD"))

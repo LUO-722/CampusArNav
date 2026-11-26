@@ -3,6 +3,7 @@ package com.campus.arnav.ui
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.text.Editable
 import android.text.TextWatcher
@@ -30,7 +31,8 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(ctx.color(R.color.bg_dark))
+        // 不铺纯色底，让 MainShell 的 #FFF1F7→#EDF7FF 渐变透出来
+        setBackgroundColor(Color.TRANSPARENT)
         setPadding(ctx.dp(16), ctx.dp(12), ctx.dp(16), ctx.dp(8))
         addView(textView(ctx, "校园导航", 24f, ctx.color(R.color.text_primary), bold = true))
         addView(textView(ctx, "潘安湖校区 · 楼栋坐标可现场校准", 12f, ctx.color(R.color.text_secondary)))

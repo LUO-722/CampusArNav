@@ -45,14 +45,30 @@ fun textView(
 
 /** 浅色皮肤：状态栏与导航栏图标改成深色，否则白色图标在浅底上看不见。 */
 fun Activity.insLightBars() {
+    // 先取 decorView 保证 DecorView 已经建好：onCreate 里直接摸 window.insetsController
+    // 会因为 PhoneWindow 还没有 DecorView 抛 NPE（真机 0.9.0 首启崩溃就是这个原因）。
+    val decor = window.decorView
+    @Suppress("DEPRECATION")
+    val lightStatus = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+    @Suppress("DEPRECATION")
+    val lightNav = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+    } else {
+        0
+    }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        val c = window.insetsController ?: return
-        val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-            WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-        c.setSystemBarsAppearance(mask, mask)
+        try {
+            val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+            window.insetsController?.setSystemBarsAppearance(mask, mask)
+        } catch (t: Throwable) {
+            // 老 ROM / 早期时机仍可能失败，退回旧接口
+            @Suppress("DEPRECATION")
+            decor.systemUiVisibility = decor.systemUiVisibility or lightStatus or lightNav
+        }
     } else {
         @Suppress("DEPRECATION")
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        decor.systemUiVisibility = decor.systemUiVisibility or lightStatus or lightNav
     }
 }
 /** Ins 风格页面底：上粉下浅蓝的柔和渐变。 */

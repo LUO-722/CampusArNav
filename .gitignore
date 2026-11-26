@@ -16,3 +16,12 @@ local.properties
 !debug.keystore
 # 教务系统抓取缓存（含个人数据，不入库）
 _jwxt_dump/
+
+# 临时分析/调试脚本与抓包样本（一次性用，不入库）
+_*.py
+_*.ps1
+_*.txt
+_*.html
+_*.xml
+_*.json
+_shots/

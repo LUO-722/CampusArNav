@@ -37,7 +37,8 @@ class ChatTab(
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(ctx.color(R.color.bg_dark))
+        // 不铺纯色底，让 MainShell 的 #FFF1F7→#EDF7FF 渐变透出来
+        setBackgroundColor(Color.TRANSPARENT)
         setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), ctx.dp(8))
 
         val head = LinearLayout(ctx).apply {

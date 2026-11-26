@@ -101,6 +101,25 @@ class TimetableGridView @JvmOverloads constructor(
     private val blockRect = RectF()
 
     /** 「示例」角标：只有 demo 课程块右上角画一个很小的圆角标签，纯绘制，不参与点击命中。 */
+    /** 课程与活动时间重叠时，活动的点击区域（画成课程块右上角的小角标）。 */
+    private val badgeHits = ArrayList<Pair<RectF, Activity>>()
+
+    /** 不与课程重叠的活动：仍按真实时间画虚线块，点击命中它们。 */
+    private var freeActivities: List<Activity> = emptyList()
+
+    private val actBadgeBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE8447A.toInt() }
+    private val actBadgeText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        textSize = 7.5f * density
+        isFakeBoldText = true
+        textAlign = Paint.Align.CENTER
+    }
+    private val actHintText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFD6455F.toInt()
+        textSize = 7f * density
+        textAlign = Paint.Align.CENTER
+    }
+
     private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFE3EE.toInt() }
     private val badgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFFE8447A.toInt()
@@ -161,6 +180,7 @@ class TimetableGridView @JvmOverloads constructor(
         }
 
         // 课程块
+        val courseRects = ArrayList<Pair<Course, RectF>>()
         for (c in courses) {
             if (!ScheduleLogic.weekMatches(c.weeks, week)) continue
             if (c.id in skips) continue
@@ -169,6 +189,7 @@ class TimetableGridView @JvmOverloads constructor(
             val w = dayW - 4 * density
             val h = rowH * (c.endPeriod - c.startPeriod + 1) - 4 * density
             blockRect.set(x, y, x + w, y + h)
+            courseRects.add(c to RectF(blockRect))
             fillPaint.color = c.color
             canvas.drawRoundRect(blockRect, 6 * density, 6 * density, fillPaint)
             canvas.drawRoundRect(blockRect, 6 * density, 6 * density, outlinePaint)
@@ -188,13 +209,17 @@ class TimetableGridView @JvmOverloads constructor(
                 )
             }
 
-            // 示例课角标：右上角一个小圆角标签「示例」，让演示数据一眼可辨
+            // 示例课角标：默认右上角；若该格还有活动角标，挪到左上角免得叠在一起
             if (c.source == "demo") {
                 val label = "示例"
                 val bw = badgeTextPaint.measureText(label) + 6 * density
                 val bh = 10 * density
-                val right = blockRect.right - 2 * density
                 val top = blockRect.top + 2 * density
+                val hasAct = activities.any { a ->
+                    val ar = activityRect(a)
+                    ar != null && RectF.intersects(ar, blockRect)
+                }
+                val right = if (hasAct) blockRect.left + 2 * density + bw else blockRect.right - 2 * density
                 badgeRect.set(right - bw, top, right, top + bh)
                 canvas.drawRoundRect(badgeRect, bh / 2, bh / 2, badgeBgPaint)
                 canvas.drawText(
@@ -206,8 +231,23 @@ class TimetableGridView @JvmOverloads constructor(
             }
         }
 
-        // 活动块：画在课程之上，暖色半透明 + 虚线框，一眼区分「临时日程」
+        // 活动：与课程同格的重叠部分不再盖住课程，改成课程块右上角的「＋N 活动」角标
+        badgeHits.clear()
+        val overlapped = LinkedHashMap<Course, MutableList<Activity>>()
+        val free = ArrayList<Activity>()
         for (a in activities) {
+            val r = activityRect(a) ?: continue
+            val host = courseRects.firstOrNull { RectF.intersects(it.second, r) }
+            if (host != null) {
+                overlapped.getOrPut(host.first) { ArrayList() }.add(a)
+            } else {
+                free.add(a)
+            }
+        }
+        freeActivities = free
+
+        // 不重叠的活动：仍按真实时间画虚线块，一眼区分「临时日程」
+        for (a in free) {
             val wd = ScheduleLogic.weekdayOf(a.date)
             if (wd !in 1..7) continue
             val sp = ScheduleLogic.periodForTime(a.startTime, a.date).coerceIn(1, 12)
@@ -240,6 +280,53 @@ class TimetableGridView @JvmOverloads constructor(
                 )
             }
         }
+
+        // 与课程重叠的活动：课程块右上角画「＋N 活动」角标（不遮挡课程名）
+        for ((course, list) in overlapped) {
+            val rect = courseRects.firstOrNull { it.first.id == course.id }?.second ?: continue
+            if (rect.width() < 30 * density) continue
+            drawActivityBadge(canvas, rect, list)
+        }
+    }
+
+    /** 活动在周视图里的矩形；日期非法返回 null。 */
+    private fun activityRect(a: Activity): RectF? {
+        val wd = ScheduleLogic.weekdayOf(a.date)
+        if (wd !in 1..7) return null
+        val sp = ScheduleLogic.periodForTime(a.startTime, a.date).coerceIn(1, 12)
+        val epRaw = ScheduleLogic.periodForTime(a.endTime, a.date).coerceIn(1, 12)
+        val ep = if (epRaw < sp) sp else epRaw
+        val x = periodW + dayW * (wd - 1) + 2 * density
+        val y = headerH + rowH * (sp - 1) + 2 * density
+        val w = dayW - 4 * density
+        val h = rowH * (ep - sp + 1) - 4 * density
+        return RectF(x, y, x + w, y + h)
+    }
+
+    /** 在课程块右上角画「＋N 活动」角标，下面一行小字放活动名与开始时间。 */
+    private fun drawActivityBadge(canvas: Canvas, block: RectF, list: List<Activity>) {
+        val label = "＋${list.size} 活动"
+        val bw = (actBadgeText.measureText(label) + 10 * density).coerceAtMost(block.width() - 4 * density)
+        val bh = 12 * density
+        val right = block.right - 3 * density
+        val top = block.top + 3 * density
+        val rect = RectF(right - bw, top, right, top + bh)
+        canvas.drawRoundRect(rect, bh / 2, bh / 2, actBadgeBg)
+        canvas.drawText(label, (rect.left + rect.right) / 2, top + bh * 0.72f, actBadgeText)
+        badgeHits.add(rect to list.first())
+
+        val first = list.first()
+        val hint = if (first.title.length > 8) first.title.take(8) else first.title
+        val text = "$hint ${first.startTime}"
+        if (block.height() > 56 * density) {
+            val maxW = block.width() - 6 * density
+            val shown = if (actHintText.measureText(text) > maxW) {
+                var s = first.title
+                while (s.isNotEmpty() && actHintText.measureText("$s ${first.startTime}") > maxW) s = s.dropLast(1)
+                if (s.isEmpty()) first.startTime else "$s ${first.startTime}"
+            } else text
+            canvas.drawText(shown, (block.left + block.right) / 2, top + bh + 10 * density, actHintText)
+        }
     }
 
     private fun wrap(text: String, maxWidth: Float, paint: Paint): List<String> {
@@ -268,8 +355,14 @@ class TimetableGridView @JvmOverloads constructor(
             if (x < periodW || y < headerH) return true
             val day = ((x - periodW) / dayW).toInt() + 1
             val period = ((y - headerH) / rowH).toInt() + 1
-            // 活动块画在课程之上，所以先命中活动
-            val hitAct = activities.firstOrNull { a ->
+            // 先判「＋N 活动」角标，再判独立的虚线活动块，最后才是课程
+            val hitBadge = badgeHits.firstOrNull { it.first.contains(x, y) }?.second
+            if (hitBadge != null) {
+                performClick()
+                onActivityTap?.invoke(hitBadge)
+                return true
+            }
+            val hitAct = freeActivities.firstOrNull { a ->
                 if (a.date.isBlank()) return@firstOrNull false
                 val wd = ScheduleLogic.weekdayOf(a.date)
                 val sp = ScheduleLogic.periodForTime(a.startTime, a.date).coerceIn(1, 12)

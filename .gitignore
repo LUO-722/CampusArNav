@@ -24,4 +24,6 @@ _*.txt
 _*.html
 _*.xml
 _*.json
-_shots/_*.md
+_shots/
+_*.md
+

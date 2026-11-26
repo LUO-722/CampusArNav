@@ -25,17 +25,22 @@ object LlmClient {
             "两者都不填也能用（智嘉走本机规则识别 + 离线知识库）。"
 
     private const val VISION_NO_CHANNEL =
-        "识图通道未配置：可在「设置 → AI 服务」填自建代理，或填通义 VL 的 Key；" +
-            "只看图片文字的话，选图后本机 OCR 也能用（离线、不需要 Key）。"
+        "当前不可用：没有网络，或云端识图通道暂时不通；" +
+            "只看图片文字的话，选图后本机 OCR 也能用（离线、不需要网络）。"
 
     open class LlmException(message: String) : Exception(message)
 
     /** 换个模型就能成功的错误：模型不存在、限流、服务端 5xx。 */
     class RetryableLlmException(message: String) : LlmException(message)
 
-    fun chat(provider: Provider, messages: List<ChatMsg>, jsonMode: Boolean = false): String {
+    fun chat(
+        provider: Provider,
+        messages: List<ChatMsg>,
+        jsonMode: Boolean = false,
+        search: Boolean = false
+    ): String {
         if (!provider.ready()) throw LlmException(NO_CHANNEL)
-        val text = post(provider) { model ->
+        val build: (String, Boolean) -> String = { model, web ->
             JSONObject().apply {
                 put("model", model)
                 put("temperature", 0.3)
@@ -46,9 +51,23 @@ object LlmClient {
                 }
                 put("messages", arr)
                 if (jsonMode) put("response_format", JSONObject().put("type", "json_object"))
+                if (web) {
+                    // 百炼服务端联网搜索：不用另外的搜索 Key，结果由模型自己引用
+                    put("enable_search", true)
+                    put("search_options", JSONObject().apply {
+                        put("forced_search", true)
+                        put("search_strategy", "standard")
+                    })
+                }
             }.toString()
         }
-        return parseContent(text)
+        return try {
+            parseContent(post(provider) { model -> build(model, search) })
+        } catch (e: LlmException) {
+            // 某个模型不支持联网搜索时，退化成不搜索再问一次，别让用户看到报错
+            if (!search || e is RetryableLlmException) throw e
+            parseContent(post(provider) { model -> build(model, false) })
+        }
     }
 
     /** 图片理解：传入 base64（不含 data: 前缀）与 mime。 */
@@ -150,13 +169,7 @@ object LlmClient {
     private fun postOnce(provider: Provider, body: String): String {
         val base = endpointBase(provider.effectiveBase())
         if (!base.startsWith("http://", true) && !base.startsWith("https://", true)) {
-            throw LlmException(
-                if (provider.viaProxy()) {
-                    "代理地址应以 http:// 或 https:// 开头，例如 https://api.example.edu/ai"
-                } else {
-                    "接口地址应以 http:// 或 https:// 开头，例如 https://api.deepseek.com"
-                }
-            )
+            throw LlmException("云端地址异常，请检查网络后重试。")
         }
         val url = "$base/chat/completions"
         val conn = try {

@@ -5,6 +5,7 @@ import com.campus.arnav.data.ChatMsg
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.data.ScheduleLogic
+import com.campus.arnav.core.NetState
 import com.campus.arnav.kb.KbIndex
 import com.campus.arnav.net.LlmClient
 import org.json.JSONArray
@@ -61,8 +62,8 @@ object AgentEngine {
         val provider = SettingsStore.chatProvider(ctx)
         if (!provider.ready()) {
             return Result(
-                "现在是离线模式：不填 Key 也能查知识库、看课程表；想要对话式问答与拍照识通知，" +
-                    "可在「☰ → 设置」里填 DeepSeek（文本）或自建代理地址，都是可选的。",
+                "现在是离线知识库模式（没有网络，或云端暂时不可用）：我用本机知识库回答，" +
+                    "联网后会自动接入云端模型，还能帮你查最新的通知和活动。",
                 emptyList(), emptyList()
             )
         }
@@ -78,7 +79,8 @@ object AgentEngine {
             msgs.add(ChatMsg("user", userText))
         }
 
-        val raw = LlmClient.chat(provider, msgs, jsonMode = true)
+        val web = shouldSearch(ctx, userText, kbHits)
+        val raw = LlmClient.chat(provider, msgs, jsonMode = true, search = web)
         return handle(ctx, raw, kbHits)
     }
 
@@ -87,13 +89,27 @@ object AgentEngine {
         val provider = SettingsStore.vision(ctx)
         if (!provider.ready()) {
             return Result(
-                "识图需要先在「设置」里填通义 VL 的 API Key，填好就能发通知截图，我帮你提取活动。",
+                "发图前先用「本机识字」把图片里的文字读出来（不需要网络），再按文字问答或提取活动。",
                 emptyList(), emptyList()
             )
         }
         val (system, kbHits) = buildSystem(ctx, userText)
         val raw = LlmClient.visionChat(provider, system, history, userText, imageBase64)
         return handle(ctx, raw, kbHits)
+    }
+
+    /**
+     * 要不要联网：知识库没命中/命中太弱，或者问的是“最近/今天/最新”这类时效性问题。
+     * 联网由百炼服务端完成，手机端不额外访问任何网站。
+     */
+    private fun shouldSearch(ctx: Context, userText: String, hits: List<KbIndex.Hit>): Boolean {
+        if (!NetState.online(ctx)) return false
+        val best = hits.maxOfOrNull { it.score } ?: 0.0
+        if (hits.isEmpty() || best < 3.0) return true
+        val q = userText.lowercase()
+        val timeWords = listOf("今天", "明天", "昨天", "最近", "最新", "新闻", "通知", "公告",
+            "放假", "活动", "比赛", "讲座", "天气", "现在", "本周", "这周", "下周", "几号", "几点")
+        return timeWords.any { q.contains(it) }
     }
 
     private fun buildSystem(ctx: Context, userText: String): Pair<String, List<KbIndex.Hit>> {
@@ -110,7 +126,8 @@ object AgentEngine {
             append(ScheduleLogic.weekdayName(wd))
             append("，$wk 周，${ScheduleLogic.semesterName()}）。\n")
             append("你可以：回答校园制度/办事/楼宇问题、查课表、录入活动、添加课程、设闹钟、导航。\n")
-            append("涉及学校事实必须优先依据下面的【知识库资料】；资料没有就说“知识库里没写”，不要编造。\n")
+            append("涉及学校事实必须优先依据下面的【知识库资料】；资料里没有的，可以用联网搜索到的公开信息回答，" +
+                "并在 reply 末尾用「（来源：网站或栏目，日期）」标一句；搜不到就直说没有，不要编造。\n")
             append(ACTION_SPEC).append("\n\n")
             append("输出必须是严格 json：{\"reply\":\"给用户看的回答\",\"actions\":[...]}。").append("\n")
             append("动作只是补充，能直接回答就不要加动作；用户明确要求录入/设闹钟时才加。\n")

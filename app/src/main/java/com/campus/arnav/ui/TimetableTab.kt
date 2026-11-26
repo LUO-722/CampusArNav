@@ -3,22 +3,29 @@ package com.campus.arnav.ui
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import com.campus.arnav.R
+import com.campus.arnav.data.Activity
 import com.campus.arnav.data.Course
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.ScheduleLogic
+import java.util.Calendar
+import java.util.Date
 
 /**
- * ① 课程表：本周网格 + 今日活动 + 导入入口。
+ * ① 课程表：顶部「周 / 日」两种视图。
+ *
+ * - 周：原来的 7×12 网格 + 操作按钮；底部的「今日活动」「接下来 7 天」改成日视图同款卡片。
+ * - 日：日期大图卡 + 当天课程/活动卡片列表（手写体），上完的淡化加删除线。
  */
 class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
 
@@ -29,16 +36,94 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
     private val subTitle = textView(ctx, "", 12f, ctx.color(R.color.text_secondary))
     private val todayBox = LinearLayout(ctx)
     private val upcomingBox = LinearLayout(ctx)
+    private val weekBox = LinearLayout(ctx)
+
+    private val dayNavLabel = handText(ctx, "", 15f, ctx.color(R.color.text_primary)).apply {
+        gravity = Gravity.CENTER
+    }
+    private val heroHolder = FrameLayout(ctx)
+    private val dayList = LinearLayout(ctx)
+    private val dayBox = LinearLayout(ctx)
+
+    private val segWeek = TextView(ctx)
+    private val segDay = TextView(ctx)
+
     private var shownWeek = ScheduleLogic.currentWeek()
+    private var shownDate = CourseStore.today()
+    private var mode = 0
 
     init {
         orientation = VERTICAL
         setBackgroundColor(ctx.color(R.color.bg_dark))
         setPadding(ctx.dp(16), ctx.dp(12), ctx.dp(16), ctx.dp(8))
 
-        // 标题
-        addView(textView(ctx, "课程表", 24f, ctx.color(R.color.text_primary), bold = true))
-        addView(subTitle)
+        addView(buildHeader())
+
+        buildWeekBox()
+        addView(weekBox)
+
+        buildDayBox()
+        addView(dayBox)
+
+        grid.onCourseTap = { showCourse(it) }
+        grid.onActivityTap = { showActivity(it) }
+        shownWeek = ScheduleLogic.currentWeek()
+        setMode(0)
+        refresh()
+    }
+
+    // ---------------- 顶部：标题 + 周/日 切换 ----------------
+
+    private fun buildHeader(): LinearLayout {
+        val header = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(
+            handText(ctx, "课程表", 26f, ctx.color(R.color.text_primary)),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+
+        val seg = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            background = GradientDrawable().apply {
+                cornerRadius = ctx.dp(18).toFloat()
+                setColor(Color.WHITE)
+                setStroke(ctx.dp(1), ctx.color(R.color.border))
+            }
+            elevation = ctx.dp(1).toFloat()
+            setPadding(ctx.dp(3), ctx.dp(3), ctx.dp(3), ctx.dp(3))
+        }
+        for ((label, idx) in listOf("周" to 0, "日" to 1)) {
+            val tv = if (idx == 0) segWeek else segDay
+            tv.text = label
+            tv.textSize = 14f
+            tv.gravity = Gravity.CENTER
+            tv.setOnClickListener { setMode(idx) }
+            seg.addView(tv, LinearLayout.LayoutParams(ctx.dp(46), ctx.dp(30)))
+        }
+        header.addView(seg, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        return header
+    }
+
+    private fun setMode(m: Int) {
+        mode = m
+        val soft = Color.parseColor("#FFE3EE")
+        for ((tv, idx) in listOf(segWeek to 0, segDay to 1)) {
+            tv.background = rounded(ctx, if (m == idx) soft else Color.TRANSPARENT, 16)
+            tv.setTextColor(if (m == idx) ctx.color(R.color.accent) else ctx.color(R.color.text_secondary))
+        }
+        weekBox.visibility = if (m == 0) View.VISIBLE else View.GONE
+        dayBox.visibility = if (m == 1) View.VISIBLE else View.GONE
+    }
+
+    // ---------------- 周视图 ----------------
+
+    private fun buildWeekBox() {
+        weekBox.orientation = VERTICAL
+        weekBox.addView(subTitle, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = ctx.dp(2) })
 
         // 周次切换
         val weekRow = LinearLayout(ctx).apply {
@@ -59,18 +144,17 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
             }
         }
         weekRow.addView(prev, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(36)))
-        val lpLabel = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        weekRow.addView(weekLabel, lpLabel)
+        weekRow.addView(weekLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         weekRow.addView(next, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(36)))
         weekRow.addView(now, LinearLayout.LayoutParams(ctx.dp(64), ctx.dp(36)).apply { leftMargin = ctx.dp(6) })
-        addView(weekRow)
+        weekBox.addView(weekRow)
 
         // 网格
         val hScroll = HorizontalScrollView(ctx).apply {
             isHorizontalScrollBarEnabled = false
             addView(grid)
         }
-        addView(hScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        weekBox.addView(hScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         // 操作（两行，避免窄屏挤成多行）
         val ops = LinearLayout(ctx).apply {
@@ -94,7 +178,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                 ctx.toast("已载入演示课表")
             }
         }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f).apply { leftMargin = ctx.dp(6) })
-        addView(ops)
+        weekBox.addView(ops)
 
         val ops2 = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
@@ -114,34 +198,81 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                 }
             }
         }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f).apply { leftMargin = ctx.dp(6) })
-        addView(ops2)
+        weekBox.addView(ops2)
 
-        // 今日活动
-        addView(textView(ctx, "今日活动", 15f, ctx.color(R.color.text_primary), bold = true).apply {
-            setPadding(0, ctx.dp(12), 0, ctx.dp(4))
-        })
+        weekBox.addView(sectionTitle("今日活动"))
         todayBox.orientation = VERTICAL
-        addView(todayBox)
+        weekBox.addView(todayBox)
 
-        addView(textView(ctx, "接下来 7 天", 15f, ctx.color(R.color.text_primary), bold = true).apply {
-            setPadding(0, ctx.dp(14), 0, ctx.dp(4))
-        })
+        weekBox.addView(sectionTitle("接下来 7 天"))
         upcomingBox.orientation = VERTICAL
-        addView(upcomingBox)
-
-        grid.onCourseTap = { showCourse(it) }
-        grid.onActivityTap = { showActivity(it) }
-        shownWeek = ScheduleLogic.currentWeek()
-        refresh()
+        weekBox.addView(upcomingBox)
     }
+
+    // ---------------- 日视图 ----------------
+
+    private fun buildDayBox() {
+        dayBox.orientation = VERTICAL
+
+        val navRow = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, ctx.dp(8), 0, ctx.dp(4))
+        }
+        navRow.addView(button(ctx, "◀", ctx.color(R.color.bg_card), ctx.color(R.color.accent)).apply {
+            setOnClickListener { shiftDay(-1) }
+        }, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(36)))
+        navRow.addView(dayNavLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        navRow.addView(button(ctx, "▶", ctx.color(R.color.bg_card), ctx.color(R.color.accent)).apply {
+            setOnClickListener { shiftDay(1) }
+        }, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(36)))
+        navRow.addView(button(ctx, "今天", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
+            setOnClickListener {
+                shownDate = CourseStore.today()
+                refresh()
+            }
+        }, LinearLayout.LayoutParams(ctx.dp(64), ctx.dp(36)).apply { leftMargin = ctx.dp(6) })
+        dayBox.addView(navRow)
+
+        heroHolder.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(196)
+        ).apply {
+            topMargin = ctx.dp(4)
+            bottomMargin = ctx.dp(12)
+        }
+        dayBox.addView(heroHolder)
+
+        dayList.orientation = VERTICAL
+        dayBox.addView(dayList, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+    }
+
+    private fun sectionTitle(text: String): TextView = handText(ctx, text, 17f, ctx.color(R.color.text_primary)).apply {
+        setPadding(0, ctx.dp(12), 0, ctx.dp(6))
+    }
+
+    // ---------------- 刷新 ----------------
 
     private fun switchWeek(d: Int) {
         shownWeek = (shownWeek + d).coerceIn(1, ScheduleLogic.totalWeeks())
         refresh()
     }
 
+    private fun shiftDay(d: Int) {
+        val base = ScheduleLogic.parseDate(shownDate) ?: Date()
+        val cal = Calendar.getInstance().apply {
+            time = base
+            add(Calendar.DAY_OF_YEAR, d)
+        }
+        shownDate = ScheduleLogic.formatDate(cal.time)
+        refresh()
+    }
+
     fun refresh() {
         val courses = CourseStore.courses(ctx)
+        val activities = CourseStore.activities(ctx)
+
         grid.courses = courses
         grid.week = shownWeek
         val skips = HashSet<Long>()
@@ -150,64 +281,254 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         // 本周活动也画进课表格子（虚线块）
         val weekStart = ScheduleLogic.dateOf(shownWeek, 1)
         val weekEnd = ScheduleLogic.dateOf(shownWeek, 7)
-        grid.activities = CourseStore.activities(ctx)
+        grid.activities = activities
             .filter { it.date >= weekStart && it.date <= weekEnd }
             .sortedBy { it.date + it.startTime }
-        // 节次时间用知识库《作息时间与门禁》的科文作息：8:15 开始、全年一套，不分冬夏
+        // 节次时间用知识库《作息时间与门禁》的科文作息：8:15 开始、全年一套、不分冬夏
         weekLabel.text = ScheduleLogic.weekLabel(shownWeek)
         subTitle.text = "${ScheduleLogic.semesterName()} · ${ScheduleLogic.totalWeeks()} 周 · 本周第 ${ScheduleLogic.currentWeek()} 周 · 科文作息 8:15—20:40"
 
-        todayBox.removeAllViews()
+        fillWeekSections(activities)
+        fillDay(courses, activities)
+    }
+
+    /** 周视图底部两栏：样式与日视图卡片一致。 */
+    private fun fillWeekSections(activities: List<Activity>) {
         val today = CourseStore.today()
-        val acts = CourseStore.activitiesOn(ctx, today).sortedBy { it.startTime }
+
+        todayBox.removeAllViews()
+        val acts = activities.filter { it.date == today }.sortedBy { it.startTime }
         if (acts.isEmpty()) {
-            todayBox.addView(textView(ctx, "今天没有录入的活动。", 13f, ctx.color(R.color.text_secondary)))
+            todayBox.addView(handText(ctx, "今天没有录入的活动。", 14f, ctx.color(R.color.text_secondary)))
         }
         for (a in acts) {
-            val row = card(ctx, 12).apply {
-                setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), ctx.dp(10))
-                val t = textView(
+            todayBox.addView(
+                scheduleCard(
                     ctx,
-                    (if (a.conflict) "⚠ " else "") + "${a.startTime}-${a.endTime}  ${a.title}",
-                    14f,
-                    if (a.conflict) Color.parseColor("#E8447A") else ctx.color(R.color.text_primary),
-                    bold = true
-                )
-                addView(t)
-                addView(textView(ctx, listOf(a.location, a.note).filter { it.isNotBlank() }.joinToString(" · "), 12f, ctx.color(R.color.text_secondary)))
-            }
-            row.setOnClickListener {
-                showActivity(a)
-            }
-            todayBox.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = ctx.dp(6) })
+                    dotColor(a),
+                    titleText(a),
+                    "${a.startTime}-${a.endTime}",
+                    startHint(a.date, a.endTime, a.startTime),
+                    a.location,
+                    isPassed(a.date, a.endTime)
+                ) { showActivity(a) },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = ctx.dp(8) }
+            )
         }
 
-        // 接下来 7 天
         upcomingBox.removeAllViews()
         val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-        val cal = java.util.Calendar.getInstance()
-        cal.add(java.util.Calendar.DAY_OF_YEAR, 7)
+        val cal = Calendar.getInstance()
+        cal.add(Calendar.DAY_OF_YEAR, 7)
         val end = fmt.format(cal.time)
-        val upcoming = CourseStore.activities(ctx)
+        val upcoming = activities
             .filter { it.date > today && it.date <= end }
-            .sortedBy { it.date }
+            .sortedBy { it.date + it.startTime }
         if (upcoming.isEmpty()) {
-            upcomingBox.addView(textView(ctx, "未来一周没有活动。", 13f, ctx.color(R.color.text_secondary)))
+            upcomingBox.addView(handText(ctx, "未来一周没有活动。", 14f, ctx.color(R.color.text_secondary)))
         }
         for (a in upcoming) {
-            val row = card(ctx, 12).apply {
-                setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), ctx.dp(10))
-                addView(textView(ctx, "${a.date}  ${a.startTime}-${a.endTime}", 12f, ctx.color(R.color.accent)))
-                addView(textView(ctx, a.title, 14f, ctx.color(R.color.text_primary), bold = true))
-                val extra = listOf(a.location, a.note).filter { it.isNotBlank() }.joinToString(" · ")
-                if (extra.isNotBlank()) addView(textView(ctx, extra, 12f, ctx.color(R.color.text_secondary)))
-            }
-            row.setOnClickListener {
-                showActivity(a)
-            }
-            upcomingBox.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = ctx.dp(6) })
+            upcomingBox.addView(
+                scheduleCard(
+                    ctx,
+                    dotColor(a),
+                    titleText(a),
+                    "${dayWord(a.date)}  ${a.startTime}-${a.endTime}",
+                    "",
+                    a.location,
+                    false
+                ) { showActivity(a) },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = ctx.dp(8) }
+            )
         }
     }
+
+    /** 日视图：日期大图卡 + 当天的课程 / 活动卡片。 */
+    private fun fillDay(courses: List<Course>, activities: List<Activity>) {
+        val today = CourseStore.today()
+        val wd = ScheduleLogic.weekdayOf(shownDate)
+        val wk = ScheduleLogic.weekOf(shownDate)
+        dayNavLabel.text = buildString {
+            append(monthDay(shownDate))
+            append("  ")
+            append(weekdayText(shownDate))
+            if (shownDate == today) append("  · 今天")
+        }
+
+        val skips = CourseStore.skipsFor(ctx, shownDate)
+        class Item(
+            val title: String,
+            val start: String,
+            val end: String,
+            val place: String,
+            val color: Int,
+            val course: Course?,
+            val activity: Activity?
+        )
+
+        val items = ArrayList<Item>()
+        for (c in courses) {
+            if (c.weekday != wd) continue
+            if (c.id in skips) continue
+            if (!ScheduleLogic.weekMatches(c.weeks, wk)) continue
+            val begin = ScheduleLogic.periodTime(c.startPeriod, shownDate)
+            val finish = ScheduleLogic.periodTime(c.endPeriod, shownDate)
+            if (begin.isBlank() || finish.isBlank()) continue
+            items.add(
+                Item(c.name, begin.substringBefore('-'), finish.substringAfter('-'), c.location, c.color, c, null)
+            )
+        }
+        for (a in activities) {
+            if (a.date != shownDate) continue
+            items.add(Item(a.title, a.startTime, a.endTime, a.location, dotColor(a), null, a))
+        }
+        items.sortBy { ScheduleLogic.toMinutes(it.start) }
+
+        heroHolder.removeAllViews()
+        heroHolder.addView(
+            buildDayHero(
+                ctx,
+                shownDate,
+                weekdayText(shownDate),
+                wk,
+                items.size,
+                shownDate == today,
+                captionFor(shownDate),
+                photoFor(shownDate)
+            ),
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        )
+
+        dayList.removeAllViews()
+        if (items.isEmpty()) {
+            dayList.addView(
+                dayCard(ctx).apply {
+                    addView(
+                        handText(
+                            ctx,
+                            if (shownDate == today) "今天没有课，也没有活动。" else "这一天没有安排。",
+                            15f,
+                            ctx.color(R.color.text_secondary)
+                        )
+                    )
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = ctx.dp(8) }
+            )
+        }
+        for (it in items) {
+            val card = scheduleCard(
+                ctx,
+                it.color,
+                it.title,
+                "${it.start}-${it.end}",
+                startHint(shownDate, it.end, it.start),
+                it.place,
+                isPassed(shownDate, it.end)
+            ) {
+                val c = it.course
+                if (c != null) showCourse(c) else it.activity?.let { a -> showActivity(a) }
+            }
+            dayList.addView(card, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = ctx.dp(8) })
+        }
+    }
+
+    // ---------------- 小工具 ----------------
+
+    private fun dotColor(a: Activity): Int =
+        if (a.conflict) Color.parseColor("#E8447A") else ctx.color(R.color.accent)
+
+    private fun titleText(a: Activity): String = (if (a.conflict) "⚠ " else "") + a.title
+
+    private fun nowMinutes(): Int {
+        val c = Calendar.getInstance()
+        return c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
+    }
+
+    /** 上完了没有：过去的日子算上完，今天按结束时间比。 */
+    private fun isPassed(date: String, end: String): Boolean {
+        val today = CourseStore.today()
+        if (date < today) return true
+        if (date > today) return false
+        val e = ScheduleLogic.toMinutes(end)
+        return e > 0 && nowMinutes() > e
+    }
+
+    /** 时间行后半段：进行中 / 几分钟后开始 / 空。 */
+    private fun startHint(date: String, end: String, start: String): String {
+        if (date != CourseStore.today()) return ""
+        val now = nowMinutes()
+        val s = ScheduleLogic.toMinutes(start)
+        val e = ScheduleLogic.toMinutes(end)
+        if (s <= 0) return ""
+        return when {
+            now in s..e -> "进行中"
+            now < s -> {
+                val m = s - now
+                when {
+                    m < 1 -> "马上开始"
+                    m < 60 -> "${m}分钟后开始"
+                    else -> {
+                        val h = m / 60
+                        val mm = m % 60
+                        if (mm == 0) "${h}小时后开始" else "${h}小时${mm}分钟后开始"
+                    }
+                }
+            }
+            else -> ""
+        }
+    }
+
+    private fun weekdayText(date: String): String =
+        "星期" + ScheduleLogic.weekdayName(ScheduleLogic.weekdayOf(date))
+
+    private fun weekdayShort(date: String): String =
+        "周" + ScheduleLogic.weekdayName(ScheduleLogic.weekdayOf(date))
+
+    private fun monthDay(date: String): String =
+        date.substring(5, 7).trimStart('0') + "月" + date.substring(8, 10).trimStart('0') + "日"
+
+    private fun dayWord(date: String): String {
+        val today = CourseStore.today()
+        return when (date) {
+            today -> "今天"
+            addDays(today, 1) -> "明天"
+            addDays(today, 2) -> "后天"
+            else -> monthDay(date) + " " + weekdayShort(date)
+        }
+    }
+
+    private fun addDays(date: String, d: Int): String {
+        val base = ScheduleLogic.parseDate(date) ?: return date
+        val cal = Calendar.getInstance().apply {
+            time = base
+            add(Calendar.DAY_OF_YEAR, d)
+        }
+        return ScheduleLogic.formatDate(cal.time)
+    }
+
+    private fun photoIndex(date: String): Int {
+        val d = ScheduleLogic.parseDate(date) ?: Date()
+        val cal = Calendar.getInstance().apply { time = d }
+        return cal.get(Calendar.DAY_OF_YEAR) % 3
+    }
+
+    private fun photoFor(date: String): Int = intArrayOf(
+        R.drawable.hero_lake, R.drawable.hero_fjord, R.drawable.hero_fall
+    )[photoIndex(date)]
+
+    private fun captionFor(date: String): String = arrayOf(
+        "潘安湖畔伴清风", "云影天光共一色", "秋林染尽匠心楼"
+    )[photoIndex(date)]
+
+    // ---------------- 下面这些是原有的弹窗 / 导入导出逻辑，未改动 ----------------
 
     private fun showCourse(c: Course) {
         val wk = shownWeek
@@ -365,7 +686,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         }
     }
 
-    private fun showActivity(a: com.campus.arnav.data.Activity) {
+    private fun showActivity(a: Activity) {
         AlertDialog.Builder(ctx)
             .setTitle(a.title)
             .setMessage(
@@ -385,7 +706,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
     }
 
     /** 把活动写入系统日历：不申请权限，唤起日历 App 的“新建事件”界面由用户确认。 */
-    private fun addToCalendar(a: com.campus.arnav.data.Activity) {
+    private fun addToCalendar(a: Activity) {
         val begin = eventMillis(a.date, a.startTime)
         val end = eventMillis(a.date, a.endTime)
         if (begin == null || end == null) {
@@ -415,16 +736,16 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         val h = hm.getOrNull(0)?.toIntOrNull() ?: return null
         val m = hm.getOrNull(1)?.toIntOrNull() ?: 0
         if (h !in 0..23 || m !in 0..59) return null
-        return java.util.Calendar.getInstance().apply {
+        return Calendar.getInstance().apply {
             this.time = d
-            set(java.util.Calendar.HOUR_OF_DAY, h)
-            set(java.util.Calendar.MINUTE, m)
-            set(java.util.Calendar.SECOND, 0)
-            set(java.util.Calendar.MILLISECOND, 0)
+            set(Calendar.HOUR_OF_DAY, h)
+            set(Calendar.MINUTE, m)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
         }.timeInMillis
     }
 
-    private fun editActivity(a: com.campus.arnav.data.Activity) {
+    private fun editActivity(a: Activity) {
         inputForm(
             ctx, "编辑活动",
             listOf(
@@ -466,25 +787,6 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
     private fun validTime(s: String): Boolean {
         if (s.isBlank()) return true
         return ScheduleLogic.validClock(s)
-    }
-
-    /** 活动与当天课程是否时间冲突（分钟区间比较，课程按节次时间换算）。 */
-    private fun hasConflict(date: String, start: String, end: String): Boolean {
-        if (date.isBlank() || start.isBlank() || end.isBlank()) return false
-        if (ScheduleLogic.parseDate(date) == null) return false
-        val s = ScheduleLogic.toMinutes(start)
-        val e = ScheduleLogic.toMinutes(end)
-        if (e <= s) return false
-        val wk = ScheduleLogic.weekOf(date)
-        val wd = ScheduleLogic.weekdayOf(date)
-        val skips = CourseStore.skipsFor(ctx, date)
-        return CourseStore.courses(ctx).any { c ->
-            c.weekday == wd && c.id !in skips && ScheduleLogic.weekMatches(c.weeks, wk) &&
-                run {
-                    val (cs, ce) = ScheduleLogic.courseRange(c, date)
-                    s < ce && e > cs
-                }
-        }
     }
 
     /** 导出当前课表 + 活动为 JSON（可再粘贴回「导入课表 → JSON」），走系统分享面板。 */

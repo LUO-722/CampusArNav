@@ -27,14 +27,45 @@ import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.kb.KbIndex
 import com.campus.arnav.net.JwxtClient
 import com.campus.arnav.net.LlmClient
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.applySystemBarInsets
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.button
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.card
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.color
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.confirm
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.dp
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.editText
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.kvRow
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.textView
 
 /**
@@ -56,9 +87,10 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        insLightBars()
 
         val root = ScrollView(this).apply {
-            setBackgroundColor(color(R.color.bg_dark))
+            background = insBackground(this@SettingsActivity)
             isFillViewport = true
         }
         val box = LinearLayout(this).apply {
@@ -179,7 +211,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         box.addView(status)
 
-        val save = button(this, "保存设置", color(R.color.accent), Color.parseColor("#1A120C")).apply {
+        val save = button(this, "保存设置", color(R.color.accent), Color.parseColor("#FFFFFF")).apply {
             textSize = 16f
             setOnClickListener {
                 saveAll(dsBase, dsKey, dsModel, semStart, semWeeks, semName)
@@ -200,7 +232,7 @@ class SettingsActivity : AppCompatActivity() {
     // ---------------- 教务系统 ----------------
 
     private fun authSummary(a: AuthStore.Session): String {
-        val wanNote = if (a.mode == AuthStore.MODE_WAN && AuthStore.wanBlocked()) " · 现在外网不可登录" else ""
+        val wanNote = if (a.mode == AuthStore.MODE_WAN && AuthStore.wanBlocked()) " · 不在外网开放时段" else ""
         return if (a.loggedIn) {
             "已登录（${a.modeLabel()}）$wanNote；可立即同步课表 / 考试 / 成绩。"
         } else {
@@ -215,8 +247,8 @@ class SettingsActivity : AppCompatActivity() {
             return
         }
         if (a.mode == AuthStore.MODE_WAN && AuthStore.wanBlocked()) {
-            status.text = AuthStore.wanWindowText() + "，现在不能同步（已缓存内容照常看）。"
-            return
+            // 只提示，不拦：时段外也允许试一次，连不上由网络层报错
+            status.text = AuthStore.wanWindowText() + "，现在不在开放时段，正在尝试同步…"
         }
         status.text = "正在同步…"
         Thread {
@@ -232,17 +264,11 @@ class SettingsActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 // 忽略落库异常，原文已存档
             }
+            // 学籍信息一并更新；学号没解析出来就用已保存的登录账号兜底
             runCatching {
-                val old = ProfileStore.get(this)
-                val jw = r.profile
-                ProfileStore.save(
-                    this,
-                    old.copy(
-                        nick = jw.name.ifBlank { old.nick },
-                        sid = jw.sid.ifBlank { old.sid },
-                        college = jw.college.ifBlank { old.college }
-                    )
-                )
+                var jw = r.profile
+                if (jw.sid.isBlank()) jw = jw.copy(sid = a.account)
+                ProfileStore.mergeJwxt(this, jw)
             }
             runOnUiThread {
                 status.text = if (r.ok) {
@@ -401,10 +427,10 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun paintBadge(v: TextView, ready: Boolean) {
         v.text = if (ready) "已配置" else "未配置"
-        v.setTextColor(if (ready) Color.parseColor("#FFB067") else Color.parseColor("#FFB86B"))
+        v.setTextColor(if (ready) Color.parseColor("#E8447A") else Color.parseColor("#E8447A"))
         v.background = GradientDrawable().apply {
             cornerRadius = dp(9).toFloat()
-            setColor(if (ready) Color.parseColor("#3A2A1E") else Color.parseColor("#4A3524"))
+            setColor(if (ready) Color.parseColor("#FFE3EE") else Color.parseColor("#EAF6FD"))
         }
     }
 

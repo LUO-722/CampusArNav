@@ -1,5 +1,8 @@
 package com.campus.arnav.ui
 
+import android.app.Activity
+import android.os.Build
+import android.view.WindowInsetsController
 import androidx.appcompat.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
@@ -40,13 +43,33 @@ fun textView(
     includeFontPadding = false
 }
 
+/** 浅色皮肤：状态栏与导航栏图标改成深色，否则白色图标在浅底上看不见。 */
+fun Activity.insLightBars() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val c = window.insetsController ?: return
+        val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+            WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        c.setSystemBarsAppearance(mask, mask)
+    } else {
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+    }
+}
+/** Ins 风格页面底：上粉下浅蓝的柔和渐变。 */
+fun insBackground(ctx: Context): GradientDrawable = GradientDrawable(
+    GradientDrawable.Orientation.TOP_BOTTOM,
+    intArrayOf(Color.parseColor("#FFF1F7"), Color.parseColor("#EDF7FF"))
+)
+
 fun card(ctx: Context, padDp: Int = 14): LinearLayout = LinearLayout(ctx).apply {
     orientation = LinearLayout.VERTICAL
     setPadding(ctx.dp(padDp), ctx.dp(padDp), ctx.dp(padDp), ctx.dp(padDp))
     background = GradientDrawable().apply {
-        cornerRadius = ctx.dp(16).toFloat()
+        cornerRadius = ctx.dp(18).toFloat()
         setColor(ctx.color(R.color.bg_card))
+        setStroke(ctx.dp(1), ctx.color(R.color.border))
     }
+    elevation = ctx.dp(1).toFloat()
 }
 
 fun rounded(ctx: Context, colorInt: Int, radiusDp: Int = 12): GradientDrawable =
@@ -65,7 +88,11 @@ fun button(
     isAllCaps = false
     textSize = 14f
     setTextColor(fg)
-    background = rounded(ctx, bg, 12)
+    background = GradientDrawable().apply {
+        cornerRadius = ctx.dp(14).toFloat()
+        setColor(bg)
+        setStroke(ctx.dp(1), ctx.color(R.color.border))
+    }
     minHeight = ctx.dp(44)
     minimumHeight = ctx.dp(44)
     setPadding(ctx.dp(14), 0, ctx.dp(14), 0)
@@ -83,7 +110,11 @@ fun editText(
     textSize = 14f
     setTextColor(ctx.color(R.color.text_primary))
     setHintTextColor(ctx.color(R.color.text_secondary))
-    background = rounded(ctx, ctx.color(R.color.bg_dark), 10)
+    background = GradientDrawable().apply {
+        cornerRadius = ctx.dp(12).toFloat()
+        setColor(ctx.color(R.color.bg_card))
+        setStroke(ctx.dp(1), ctx.color(R.color.border))
+    }
     setPadding(ctx.dp(10), ctx.dp(8), ctx.dp(10), ctx.dp(8))
 }
 
@@ -159,6 +190,6 @@ fun kvRow(ctx: Context, k: String, v: String): LinearLayout = LinearLayout(ctx).
 }
 
 fun divider(ctx: Context): View = View(ctx).apply {
-    setBackgroundColor(Color.parseColor("#3D2C20"))
+    setBackgroundColor(Color.parseColor("#F4DEE8"))
     layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(1))
 }

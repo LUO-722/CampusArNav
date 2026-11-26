@@ -1,0 +1,24 @@
+# 统一换行符：仓库内存 LF，Windows 工作区检出 CRLF
+* text=auto
+
+# 文本类
+*.kt    text
+*.java  text
+*.gradle text eol=crlf
+*.bat   text eol=crlf
+*.properties text
+*.md    text
+*.xml   text
+*.json  text
+*.py    text
+
+# 二进制（不做换行符转换）
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.apk   binary
+*.aab   binary
+*.jar   binary
+*.so    binary
+*.ttf   binary
+*.ttc   binary

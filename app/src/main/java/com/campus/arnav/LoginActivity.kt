@@ -24,19 +24,47 @@ import com.campus.arnav.data.Course
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.net.JwxtClient
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.applySystemBarInsets
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.button
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.card
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.color
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.dp
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.editText
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.rounded
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.textView
 
 /**
  * 登录页：学号 + 密码 + 内网/外网选择，登录教务系统并首次同步课表/考试/成绩。
  *
- * - 内网全天可用；外网 09:00—18:00 不能登录（只禁登录与同步，已缓存内容照常看）。
+ * - 内网全天可用；外网入口开放时段 09:00—18:00，时段外只做提示、仍可尝试（已缓存内容照常看）。
  * - 账号密码用 AndroidKeyStore 加密后存本机；勾掉「记住」就不留密码。
  * - 登录成功后会把课表/考试/成绩页面原文存到 filesDir/jwxt/，并尽力解析课表入库。
  */
@@ -64,10 +92,11 @@ class LoginActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        insLightBars()
         SettingsStore.applySemester(this)
 
         val root = ScrollView(this).apply {
-            setBackgroundColor(color(R.color.bg_dark))
+            background = insBackground(this@LoginActivity)
             isFillViewport = true
         }
         val box = LinearLayout(this).apply {
@@ -126,7 +155,7 @@ class LoginActivity : AppCompatActivity() {
         val netCard = card(this, 14)
         netCard.addView(textView(this, "登录网络", 16f, color(R.color.text_primary), bold = true))
         netCard.addView(textView(this,
-            "内网：全天可登录（需连校园网）。外网：09:00—18:00 不能登录，其余时间可用。",
+            "内网：全天可登录（需连校园网）。外网：开放时段 09:00—18:00，时段外可试但可能不通。",
             11f, color(R.color.text_secondary)).apply { setPadding(0, dp(4), 0, dp(10)) })
 
         val chipRow = LinearLayout(this).apply {
@@ -134,7 +163,7 @@ class LoginActivity : AppCompatActivity() {
             setPadding(0, 0, 0, dp(10))
         }
         lanChip = chip("内网 · 全天")
-        wanChip = chip("外网 · 限时")
+        wanChip = chip("外网 · 9:00—18:00")
         chipRow.addView(lanChip, LinearLayout.LayoutParams(0, dp(40), 1f))
         chipRow.addView(wanChip, LinearLayout.LayoutParams(0, dp(40), 1f).apply { leftMargin = dp(8) })
         netCard.addView(chipRow)
@@ -156,7 +185,7 @@ class LoginActivity : AppCompatActivity() {
         wanWrap.addView(wanInput)
         netCard.addView(wanWrap)
 
-        hint = textView(this, "", 11f, Color.parseColor("#FFB86B")).apply {
+        hint = textView(this, "", 11f, Color.parseColor("#E8447A")).apply {
             setPadding(0, dp(8), 0, 0)
         }
         netCard.addView(hint)
@@ -204,7 +233,7 @@ class LoginActivity : AppCompatActivity() {
         }
         box.addView(status)
 
-        loginBtn = button(this, "登录并同步", color(R.color.accent), Color.parseColor("#1A120C")).apply {
+        loginBtn = button(this, "登录并同步", color(R.color.accent), Color.parseColor("#FFFFFF")).apply {
             textSize = 16f
             setOnClickListener { doLogin() }
         }
@@ -230,7 +259,7 @@ class LoginActivity : AppCompatActivity() {
         box.addView(textView(this,
             "· 学号密码只存在本机：密码用 AndroidKeyStore 加密，不上传任何服务器。\n" +
                 "· 登录成功后会把课表、考试、成绩页面原文存到 App 私有目录，并尝试解析课表。\n" +
-                "· 内网地址 10.x 只在校内网络可访问；外网 09:00—18:00 关闭登录，已缓存内容仍可查看。",
+                "· 内网地址 10.x 只在校内网络可访问；外网入口开放 09:00—18:00，已缓存内容随时可看。",
             11f, color(R.color.text_secondary)).apply { setPadding(0, dp(16), 0, 0) })
 
         status.text = if (session.loggedIn) "上次已登录，可直接进入；也可以重新登录以刷新数据。" else "填好学号密码后点「登录并同步」。"
@@ -242,20 +271,20 @@ class LoginActivity : AppCompatActivity() {
         mode = m
         val lan = m == AuthStore.MODE_LAN
         paintChip(lanChip, lan, "内网 · 全天")
-        paintChip(wanChip, !lan, "外网 · 限时")
+        paintChip(wanChip, !lan, "外网 · 9:00—18:00")
         lanWrap.visibility = if (lan) View.VISIBLE else View.GONE
         wanWrap.visibility = if (lan) View.GONE else View.VISIBLE
         if (lan) {
             hint.text = "内网全天可登录，需要手机连着校园网。"
-            hint.setTextColor(Color.parseColor("#FFB067"))
+            hint.setTextColor(Color.parseColor("#E8447A"))
         } else {
             val blocked = AuthStore.wanBlocked()
             hint.text = if (blocked) {
-                "现在 ${AuthStore.nowText()}，${AuthStore.wanWindowText()}；请切内网，或 18:00 后再用外网。"
+                "现在 ${AuthStore.nowText()}，${AuthStore.wanWindowText()}；现在不在开放时段，仍可直接尝试登录。"
             } else {
-                "现在 ${AuthStore.nowText()}，外网可登录（${AuthStore.wanWindowText()}）。"
+                "现在 ${AuthStore.nowText()}，外网开放时段内（${AuthStore.wanWindowText()}），可以直接登录。"
             }
-            hint.setTextColor(if (blocked) Color.parseColor("#FF6B6B") else Color.parseColor("#FFB067"))
+            hint.setTextColor(if (blocked) Color.parseColor("#E8447A") else Color.parseColor("#E8447A"))
         }
     }
 
@@ -271,7 +300,7 @@ class LoginActivity : AppCompatActivity() {
         v.setTextColor(if (selected) color(R.color.accent) else color(R.color.text_secondary))
         v.background = GradientDrawable().apply {
             cornerRadius = dp(12).toFloat()
-            setColor(if (selected) Color.parseColor("#3A2A1E") else color(R.color.bg_dark))
+            setColor(if (selected) Color.parseColor("#FFE3EE") else color(R.color.bg_dark))
             if (selected) setStroke(dp(1), color(R.color.accent))
         }
     }
@@ -327,10 +356,8 @@ class LoginActivity : AppCompatActivity() {
             status.text = "学号和密码都要填。"
             return
         }
-        if (mode == AuthStore.MODE_WAN && AuthStore.wanBlocked()) {
-            status.text = "现在 ${AuthStore.nowText()}，${AuthStore.wanWindowText()}；请切内网或 18:00 后再试。"
-            return
-        }
+        // 外网时段只做提示，不拦登录：时段内一般更通，时段外也允许试一次，真连不上由网络层报错。
+        val outsideWindow = mode == AuthStore.MODE_WAN && AuthStore.wanBlocked()
         val base = base()
         if (base.isBlank()) {
             status.text = if (mode == AuthStore.MODE_WAN) "外网地址还没填。" else "内网地址不能为空。"
@@ -340,7 +367,11 @@ class LoginActivity : AppCompatActivity() {
         busy = true
         loginBtn.isEnabled = false
         loginBtn.text = "连接中…"
-        status.text = "正在连接教务系统…"
+        status.text = if (outsideWindow) {
+            "正在连接教务系统…（现在不在外网开放时段，若失败请 9:00—18:00 再试）"
+        } else {
+            "正在连接教务系统…"
+        }
 
         Thread {
             val r = JwxtClient.login(base, acc, pwd, captcha)
@@ -375,18 +406,11 @@ class LoginActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 // 落库失败不影响进入应用
             }
+            // 学籍信息（姓名/学号/院系/专业/班级）并进「我的」；学号没解析出来就用登录账号兜底
             runCatching {
-                val old = com.campus.arnav.data.ProfileStore.get(this)
-                val jw = sync.profile
-                com.campus.arnav.data.ProfileStore.save(
-                    this,
-                    old.copy(
-                        nick = jw.name.ifBlank { old.nick },
-                        sid = jw.sid.ifBlank { if (old.sid.isBlank()) acc else old.sid },
-                        college = jw.college.ifBlank { old.college },
-                        dorm = old.dorm
-                    )
-                )
+                var jw = sync.profile
+                if (jw.sid.isBlank()) jw = jw.copy(sid = acc)
+                com.campus.arnav.data.ProfileStore.mergeJwxt(this, jw)
             }
             AuthStore.setLastSync(this, System.currentTimeMillis())
             ui {

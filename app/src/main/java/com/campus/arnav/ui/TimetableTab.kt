@@ -170,7 +170,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                     ctx,
                     (if (a.conflict) "⚠ " else "") + "${a.startTime}-${a.endTime}  ${a.title}",
                     14f,
-                    if (a.conflict) Color.parseColor("#FFB86B") else ctx.color(R.color.text_primary),
+                    if (a.conflict) Color.parseColor("#E8447A") else ctx.color(R.color.text_primary),
                     bold = true
                 )
                 addView(t)

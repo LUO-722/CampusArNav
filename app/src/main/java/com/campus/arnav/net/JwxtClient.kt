@@ -7,6 +7,7 @@ import com.campus.arnav.data.Course
 import com.campus.arnav.data.Exam
 import com.campus.arnav.data.Grade
 import com.campus.arnav.data.JwProfile
+import com.campus.arnav.data.ScheduleLogic
 import java.io.ByteArrayOutputStream
 import java.net.CookieHandler
 import java.net.CookieManager
@@ -307,11 +308,13 @@ object JwxtClient {
 
     private fun clean(s: String): String =
         s.replace(Regex("<[^>]+>"), "").replace("&nbsp;", " ").trim().take(60)
+// ---------------- 同步：抓课表 / 考试 / 成绩 / 学籍卡片 ----------------
 
-// ---------------- 同步：抓课表 / 考试 / 成绩 / 学生信息 ----------------
+    /** 潘安湖校区编号（教务课表按校区区分，泉山是 3B76…）。 */
+    const val CAMPUS_PANANHU = "2AA072D3F1D747B98B4F5F84683493E5"
 
     /**
-     * 登录后把教务系统里的东西尽量全搬回来：学生信息、课表（连单元格原文一起留）、
+     * 登录后把教务系统里的东西尽量全搬回来：课表（单元格原文一字不改）、学籍卡片、
      * 考试安排、成绩单；页面原文另存到 files/jwxt 目录，课表再存一份纯文本网格。
      */
     fun sync(ctx: Context, base: String, onProgress: (String) -> Unit): SyncResult {
@@ -322,78 +325,33 @@ object JwxtClient {
         val dir = java.io.File(ctx.filesDir, "jwxt").apply { mkdirs() }
         val saved = ArrayList<String>()
         return try {
-            onProgress("读取学生首页…")
-            val home = get(root)
-            val first = if (looksLoggedIn(home.body)) home else get(absolute(root, "framework/xsMain.jsp"))
+            onProgress("检查登录会话…")
+            var first = get(absolute(root, "framework/xsMainV.htmlx"))
+            if (!looksLoggedIn(first.body)) {
+                first = get(absolute(root, "framework/xsMain.jsp"))
+            }
             if (!looksLoggedIn(first.body)) {
                 return SyncResult(false, "会话已失效，请重新登录。", emptyList(), emptyList())
             }
             savePage(dir, "home", first.body)?.let { saved.add(it) }
+            val term = ScheduleLogic.semesterId()
 
-            val links = collectLinks(first.body, first.url)
-            val kbLinks = links.filter { it.second.contains("课表") || it.second.contains("课程") }
-            val examLinks = links.filter { it.second.contains("考试") }
-            val gradeLinks = links.filter { it.second.contains("成绩") }
-            val infoLinks = links.filter { it.second.contains("个人信息") || it.second.contains("学籍") }
-
-            // ① 课表：先试首页链接，再试正方常见入口，直到能解析出课程为止
+            // ① 课表：GET 出来只是空壳，必须 POST 查询表单
             onProgress("读取课表…")
-            val kbUrls = ArrayList<String>()
-            kbLinks.forEach { kbUrls.add(it.first) }
-            kbUrls.add(absolute(root, "xskb/xskb_list.do"))
-            kbUrls.add(absolute(root, "xskb/xskb_list.do?demo=1"))
-            var timetableHtml = ""
-            for (u in kbUrls.distinct()) {
-                val p = try {
-                    get(u)
-                } catch (e: Exception) {
-                    continue
-                }
-                if (p.status !in 200..399 || p.body.length < 300) continue
-                if (timetableHtml.isEmpty()) timetableHtml = p.body
-                if (parseTimetable(p.body).isNotEmpty()) {
-                    timetableHtml = p.body
-                    break
-                }
+            val tt = post(
+                absolute(root, "xskb/xskb_list.do"),
+                linkedMapOf(
+                    "cj0701id" to "", "zc" to "", "demo" to "", "xnxq01id" to term,
+                    "sfFD" to "1", "wkbkc" to "1", "xstzd" to "1", "xswk" to "1",
+                    "kbjcmsid" to CAMPUS_PANANHU
+                )
+            )
+            val timetableHtml = if (tt.status in 200..499) tt.body else ""
+            if (timetableHtml.isNotBlank()) {
+                savePage(dir, "timetable", timetableHtml)?.let { saved.add(it) }
             }
-            if (timetableHtml.isNotBlank()) savePage(dir, "timetable", timetableHtml)?.let { saved.add(it) }
-
-            // ② 考试
-            onProgress("读取考试安排…")
-            val examUrls = ArrayList<String>()
-            examLinks.forEach { examUrls.add(it.first) }
-            examUrls.add(absolute(root, "kwgl/kscx_cxXsksxxIndex.do"))
-            val examPage = fetchFirst(examUrls)
-            var examHtml = ""
-            if (examPage != null) {
-                examHtml = examPage.body
-                savePage(dir, "exam", examHtml)?.let { saved.add(it) }
-            }
-
-            // ③ 成绩
-            onProgress("读取成绩单…")
-            val gradeUrls = ArrayList<String>()
-            gradeLinks.forEach { gradeUrls.add(it.first) }
-            gradeUrls.add(absolute(root, "kscj/cjcx_list.do"))
-            val gradePage = fetchFirst(gradeUrls)
-            var gradeHtml = ""
-            if (gradePage != null) {
-                gradeHtml = gradePage.body
-                savePage(dir, "score", gradeHtml)?.let { saved.add(it) }
-            }
-
-            // ④ 学生信息（姓名 / 学号 / 学院 / 专业 / 班级）
-            onProgress("读取学生信息…")
-            var infoHtml = first.body
-            val infoPage = fetchFirst(infoLinks.map { it.first }, minLen = 200)
-            if (infoPage != null) {
-                infoHtml = infoPage.body
-                savePage(dir, "student", infoHtml)?.let { saved.add(it) }
-            }
-
-            onProgress("解析课表…")
-            val courses = if (timetableHtml.isNotBlank()) parseTimetable(timetableHtml) else emptyList()
-            val grid = if (timetableHtml.isNotBlank()) pickGrid(timetableHtml) else emptyList()
+            val courses = parseTimetable(timetableHtml)
+            val grid = timetableGrid(timetableHtml)
             if (grid.isNotEmpty()) {
                 runCatching {
                     val sb = StringBuilder()
@@ -404,20 +362,41 @@ object JwxtClient {
                     if (!saved.contains("timetable.txt")) saved.add("timetable.txt")
                 }
             }
-            val exams = if (examHtml.isNotBlank()) parseExams(examHtml) else emptyList()
-            val grades = if (gradeHtml.isNotBlank()) parseGrades(gradeHtml) else emptyList()
+
+            // ② 学籍卡片（姓名 / 学号 / 院系 / 专业 / 班级 / 学制 / 入学日期）
+            onProgress("读取学籍信息…")
+            val info = get(absolute(root, "grxx/xsxx"))
+            val infoHtml = if (info.status in 200..499) info.body else ""
+            if (infoHtml.isNotBlank()) savePage(dir, "student", infoHtml)?.let { saved.add(it) }
             val profile = parseProfile(infoHtml)
 
+            // ③ 考试安排：期末查询 + 随堂考查询
+            onProgress("读取考试安排…")
+            val examHtml = examQuery(root, "xsks/xsksap_list", term)
+            if (examHtml.isNotBlank()) savePage(dir, "exam", examHtml)?.let { saved.add(it) }
+            var exams = parseExams(examHtml)
+            if (exams.isEmpty()) {
+                val stk = examQuery(root, "xsks/xsstk_list", term)
+                if (stk.isNotBlank()) savePage(dir, "exam_stk", stk)?.let { saved.add(it) }
+                exams = parseExams(stk)
+            }
+
+            // ④ 成绩单
+            onProgress("读取成绩单…")
+            val gradeHtml = post(
+                absolute(root, "kscj/cjcx_list"),
+                linkedMapOf("xnxq01id" to term, "kksj" to "", "kcxz" to "", "kcmc" to "", "xsfs" to "all")
+            ).body
+            if (gradeHtml.isNotBlank()) savePage(dir, "score", gradeHtml)?.let { saved.add(it) }
+            val grades = parseGrades(gradeHtml)
+
             val msg = buildString {
-                append("已保存 ")
-                append(saved.size)
-                append(" 个文件到本机")
-                append("；课表 ")
-                append(courses.size)
-                append(" 门")
+                append("已保存 ").append(saved.size).append(" 份页面原文")
+                append("；课表 ").append(courses.size).append(" 条安排")
                 if (exams.isNotEmpty()) append("、考试 ").append(exams.size).append(" 条")
                 if (grades.isNotEmpty()) append("、成绩 ").append(grades.size).append(" 条")
-                if (courses.isEmpty()) append("（课表这次没解析出课程，原文已保留，可在「教务原文」里对照）")
+                if (profile.name.isNotBlank()) append("；学籍 ").append(profile.name)
+                if (courses.isEmpty()) append("（这次没解析出课程，原文已留档，可在「教务原文」里核对）")
             }
             SyncResult(true, msg, saved, courses, exams, grades, profile, grid)
         } catch (e: Exception) {
@@ -425,411 +404,353 @@ object JwxtClient {
         }
     }
 
-    /** 依次试几个候选地址，返回第一个像样的页面。 */
-    private fun fetchFirst(urls: List<String>, minLen: Int = 300): Page? {
-        for (u in urls.distinct().take(6)) {
-            val p = try {
-                get(u)
-            } catch (e: Exception) {
-                continue
-            }
-            if (p.status !in 200..399) continue
-            if (p.body.length < minLen) continue
-            return p
+    /** 考试类查询：表单字段不完全一样，多给几个空值不影响。 */
+    private fun examQuery(root: String, path: String, term: String): String {
+        val p = try {
+            post(
+                absolute(root, path),
+                linkedMapOf(
+                    "xnxq01id" to term, "xqlb" to "", "xqlbmc" to "", "kslx" to "", "kslxmc" to ""
+                )
+            )
+        } catch (e: Exception) {
+            return ""
         }
-        return null
+        return if (p.status in 200..499) p.body else ""
     }
 
     private fun savePage(dir: java.io.File, name: String, html: String): String? = try {
-        val f = java.io.File(dir, name + ".html")
-        f.writeText(html)
+        java.io.File(dir, name + ".html").writeText(html)
         name + ".html"
     } catch (e: Exception) {
         null
     }
 
-    private fun collectLinks(html: String, pageUrl: String): List<Pair<String, String>> {
-        val out = ArrayList<Pair<String, String>>()
-        val re = Regex(
-            "<a\\b[^>]*href\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
-            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
-        )
-        for (m in re.findAll(html)) {
-            val href = m.groupValues[1].trim()
-            if (href.startsWith("javascript", true) || href.startsWith("#")) continue
-            val text = m.groupValues[2].replace(Regex("<[^>]+>"), "").replace("&nbsp;", " ").trim()
-            if (text.isEmpty()) continue
-            out.add(absolute(pageUrl, href) to text)
+    // ---- 课表：强智 / 正方同一套网格 ----
+
+    /** 解析课表：table#timetable，行 = 大节（第一…第五大节），列 = 星期一…星期日。 */
+    fun parseTimetable(html: String): List<Course> {
+        val table = timetableTable(html)
+        if (table.isEmpty()) return emptyList()
+        val rows = Regex("<tr[^>]*>([\\s\\S]*?)</tr>", RegexOption.IGNORE_CASE)
+            .findAll(table).map { it.groupValues[1] }.toList()
+        if (rows.size < 2) return emptyList()
+
+        val days = ArrayList<Int>()
+        for (cell in rawCells(rows[0])) {
+            val d = weekdayNumber(plain(cell))
+            if (d > 0) days.add(d)
         }
-        return out.distinctBy { it.first }
-    }
+        if (days.isEmpty()) days.addAll(listOf(1, 2, 3, 4, 5, 6, 7))
 
-    // ---------------- 通用表格 → 文本网格 ----------------
-
-    /** 把页面里所有表格抽成「行 × 列」的纯文本网格，单元格内换行保留。 */
-    fun tables(html: String): List<List<List<String>>> {
-        val out = ArrayList<List<List<String>>>()
-        val tableRe = Regex("<table\\b[^>]*>.*?</table>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val rowRe = Regex("<tr\\b[^>]*>(.*?)</tr>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val cellRe = Regex("<t[dh]\\b[^>]*>(.*?)</t[dh]>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        for (tm in tableRe.findAll(html)) {
-            val rows = ArrayList<List<String>>()
-            for (rm in rowRe.findAll(tm.value)) {
-                val cells = ArrayList<String>()
-                for (cm in cellRe.findAll(rm.groupValues[1])) {
-                    cells.add(cellLines(cm.groupValues[1]).joinToString("\n"))
+        val out = ArrayList<Course>()
+        for (ri in 1 until rows.size) {
+            val cells = rawCells(rows[ri])
+            if (cells.isEmpty()) continue
+            val label = plain(cells[0])
+            if (label.contains("备注")) continue
+            val span = bigBlockPeriods(label)
+            for (ci in 1 until cells.size) {
+                val day = days.getOrElse(ci - 1) { ci }
+                for (lines in courseBlocks(cells[ci])) {
+                    val c = linesToCourse(lines, day, span.first, span.second) ?: continue
+                    val dup = out.any {
+                        it.name == c.name && it.weekday == c.weekday &&
+                            it.startPeriod == c.startPeriod && it.endPeriod == c.endPeriod &&
+                            it.weeks == c.weeks
+                    }
+                    if (!dup) out.add(c)
                 }
-                if (cells.isNotEmpty()) rows.add(cells)
             }
-            if (rows.isNotEmpty()) out.add(rows)
         }
         return out
     }
 
-    /** 选最像课表的表格（kbtable / kbcontent 优先，否则取格子最多的那张）。 */
-    private fun pickTimetableTable(html: String): String? {
-        val all = Regex("<table\\b[^>]*>.*?</table>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-            .findAll(html).map { it.value }.toList()
-        if (all.isEmpty()) return null
-        for (t in all) {
-            if (t.contains("kbtable", true) || t.contains("kbcontent", true)) return t
+    /** 课表原表格的纯文本版（留档、核对「一字不差」用）。 */
+    fun timetableGrid(html: String): List<List<String>> {
+        val table = timetableTable(html)
+        if (table.isEmpty()) return emptyList()
+        val out = ArrayList<List<String>>()
+        for (r in Regex("<tr[^>]*>([\\s\\S]*?)</tr>", RegexOption.IGNORE_CASE).findAll(table)) {
+            val cells = rawCells(r.groupValues[1]).map { plain(it).replace("\n", " / ") }
+            if (cells.isNotEmpty()) out.add(cells)
         }
-        var best: String? = null
-        var bestScore = -1
-        for (t in all) {
-            var score = Regex("<t[dh]\\b", RegexOption.IGNORE_CASE).findAll(t).count()
-            if (t.contains("星期")) score += 500
-            if (score > bestScore) {
-                bestScore = score
-                best = t
-            }
-        }
-        return best
+        return out
     }
 
-    /** 课表的纯文本网格（含表头），用于原文核对。 */
-    fun pickGrid(html: String): List<List<String>> {
-        val table = pickTimetableTable(html) ?: return emptyList()
-        val rows = ArrayList<List<String>>()
-        val rowRe = Regex("<tr\\b[^>]*>(.*?)</tr>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val cellRe = Regex("<t[dh]\\b[^>]*>(.*?)</t[dh]>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        for (rm in rowRe.findAll(table)) {
-            val cells = ArrayList<String>()
-            for (cm in cellRe.findAll(rm.groupValues[1])) {
-                cells.add(cellLines(cm.groupValues[1]).joinToString("\n"))
-            }
-            var any = false
-            for (c in cells) if (c.isNotBlank()) any = true
-            if (any) rows.add(cells)
-        }
-        return rows
+    private fun timetableTable(html: String): String {
+        if (html.isBlank()) return ""
+        val key = html.indexOf("id=\"timetable\"")
+        if (key < 0) return ""
+        val seg = html.substring(key)
+        val close = seg.indexOf("</table>")
+        return if (close > 0) seg.substring(0, close) else seg
     }
 
-    // ---------------- 课表解析（保留原文） ----------------
+    /** 一格里可能排了好几门课，每门课是一个 div.kbcontent（详细版，含教师/节次/教室）。 */
+    private fun courseBlocks(cell: String): List<List<String>> {
+        val noImg = cell.replace(
+            Regex("<div[^>]*class=['\"]item-box['\"][^>]*>[\\s\\S]*?</div>", RegexOption.IGNORE_CASE),
+            ""
+        )
+        val out = ArrayList<List<String>>()
+        for (m in Regex("<div[^>]*class=\"kbcontent\"[^>]*>([\\s\\S]*?)</div>", RegexOption.IGNORE_CASE)
+            .findAll(noImg)) {
+            val lines = plain(m.groupValues[1]).split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+            if (lines.isEmpty()) continue
+            // 同一格里的多门课用「----------------------」分隔，必须拆开，否则只会剩第一门
+            var cur = ArrayList<String>()
+            for (ln in lines) {
+                if (ln.matches(Regex("[-—\\s]{5,}"))) {
+                    if (cur.isNotEmpty()) out.add(cur)
+                    cur = ArrayList()
+                } else {
+                    cur.add(ln)
+                }
+            }
+            if (cur.isNotEmpty()) out.add(cur)
+        }
+        return out
+    }
+
+    /** 把一格里的一段文字变成课程；节次以 [xx-yy节] 为准，缺失时用大节默认值。 */
+    private fun linesToCourse(lines: List<String>, day: Int, defStart: Int, defEnd: Int): Course? {
+        var name = lines.firstOrNull()?.trim().orEmpty()
+        if (name.isEmpty()) return null
+        var from = 1
+        // 有些课名会拆成两行，如「大学体育A」+「(50607射艺)」
+        while (from < lines.size) {
+            val nx = lines[from].trim()
+            if (nx.startsWith("(") || nx.startsWith("（")) {
+                name += nx
+                from++
+            } else {
+                break
+            }
+        }
+        var weeks = ""
+        var weekText = ""
+        var periodText = ""
+        var start = defStart
+        var end = defEnd
+        var teacher = ""
+        var location = ""
+        var building = ""
+        for (i in from until lines.size) {
+            val s = lines[i].trim()
+            if (s.isEmpty()) continue
+            if (s.contains("[") && s.contains("节")) {
+                periodText = s
+                val br = Regex("\\[([^\\]]*)\\]").find(s)?.groupValues?.get(1) ?: ""
+                // 节次可能写成 01-02、03-04-05，取第一个到最后一个数字才是真实跨度
+                val nums = Regex("\\d{1,2}").findAll(br).map { it.value.toIntOrNull() ?: 0 }
+                    .filter { it in 1..12 }.toList()
+                if (nums.isNotEmpty()) {
+                    start = nums.first()
+                    end = nums.last().coerceAtLeast(start)
+                }
+                val w = s.substringBefore("(").substringBefore("（").trim()
+                weekText = w
+                weeks = w.replace("周", "").trim()
+                continue
+            }
+            if (s.contains("通知单编号")) continue
+            if (s.contains("班级")) continue
+            if (s.contains("讲课") || s.contains("实验")) continue
+            // 教学楼写在【】里，教室紧跟着同一行，例如「【潘安湖致广楼】潘安湖致广楼-303」
+            val bm = Regex("【([^】]*)】").find(s)
+            if (bm != null) {
+                building = bm.groupValues[1].trim()
+                val rest = s.substring(bm.range.last + 1).trim()
+                if (rest.isNotEmpty()) location = rest
+                continue
+            }
+            if (location.isEmpty() && (s.contains("楼") || s.contains("馆") || s.contains("场") || s.contains("中心"))) {
+                location = s
+                continue
+            }
+            if (teacher.isEmpty() && s.length <= 24) teacher = s
+        }
+        if (location.isEmpty()) location = building
+        // 教务写成「潘安湖致广楼-303」，格子里显示时去掉校区前缀（原文仍在 raw 里可核对）
+        location = location.replace("潘安湖", "").replace("泉山", "").trim().trimStart('-').trim()
+        return Course(
+            name = name,
+            teacher = teacher,
+            location = location,
+            weekday = day,
+            startPeriod = start.coerceIn(1, 12),
+            endPeriod = end.coerceIn(start.coerceIn(1, 12), 12),
+            weeks = if (weeks.isBlank()) "1-16" else weeks,
+            color = 0,
+            source = "jwxt",
+            raw = lines.joinToString("\n"),
+            periodText = periodText,
+            weekText = if (weekText.isBlank()) weeks else weekText
+        )
+    }
+
+    private fun bigBlockPeriods(label: String): Pair<Int, Int> = when {
+        label.contains("一") -> 1 to 2
+        label.contains("二") -> 3 to 5
+        label.contains("三") -> 6 to 7
+        label.contains("四") -> 8 to 9
+        label.contains("五") -> 10 to 11
+        else -> 1 to 2
+    }
+
+    private fun weekdayNumber(s: String): Int {
+        val t = s.replace("星期", "").replace("周", "").trim()
+        when {
+            t.contains("一") -> return 1
+            t.contains("二") -> return 2
+            t.contains("三") -> return 3
+            t.contains("四") -> return 4
+            t.contains("五") -> return 5
+            t.contains("六") -> return 6
+            t.contains("日") || t.contains("天") -> return 7
+        }
+        return t.toIntOrNull()?.takeIf { it in 1..7 } ?: 0
+    }
+
+    // ---- 考试 / 成绩 / 学籍 ----
+
+    /** 考试安排：表头含「课程名称」，列有 考试时间 / 考场 / 座位号。 */
+    fun parseExams(html: String): List<Exam> {
+        val rows = rowsOf(html)
+        val hi = rows.indexOfFirst { r -> r.any { it.contains("课程名称") } }
+        if (hi < 0) return emptyList()
+        val head = rows[hi]
+        val cCourse = colAt(head, "课程名称")
+        val cTime = colAt(head, "考试时间")
+        val cRoom = colAt(head, "考场", "考试教室")
+        val cSeat = colAt(head, "座位号")
+        val cWeek = colAt(head, "考试周次")
+        val cDay = colAt(head, "考试星期")
+        val cJie = colAt(head, "考试节次")
+        val out = ArrayList<Exam>()
+        for (i in hi + 1 until rows.size) {
+            val r = rows[i]
+            val course = r.getOrNull(cCourse)?.trim().orEmpty()
+            if (course.isEmpty() || course.contains("未查询") || course.contains("序号")) continue
+            var time = r.getOrNull(cTime)?.trim().orEmpty()
+            if (time.isEmpty() && cWeek >= 0) {
+                time = listOf(
+                    r.getOrNull(cWeek).orEmpty(), r.getOrNull(cDay).orEmpty(), r.getOrNull(cJie).orEmpty()
+                ).filter { it.isNotBlank() }.joinToString(" ")
+            }
+            out.add(
+                Exam(
+                    course = course,
+                    time = time,
+                    location = r.getOrNull(cRoom)?.trim().orEmpty(),
+                    seat = r.getOrNull(cSeat)?.trim().orEmpty(),
+                    raw = r.joinToString(" | ")
+                )
+            )
+        }
+        return out
+    }
+
+    /** 成绩单：列有 开课学期 / 课程名称 / 成绩 / 学分 / 绩点。 */
+    fun parseGrades(html: String): List<Grade> {
+        val rows = rowsOf(html)
+        val hi = rows.indexOfFirst { r -> r.any { it.contains("课程名称") } }
+        if (hi < 0) return emptyList()
+        val head = rows[hi]
+        val cTerm = colAt(head, "开课学期")
+        val cCourse = colAt(head, "课程名称")
+        val cScore = colAt(head, "成绩")
+        val cCredit = colAt(head, "学分")
+        val cGpa = colAt(head, "绩点")
+        val out = ArrayList<Grade>()
+        for (i in hi + 1 until rows.size) {
+            val r = rows[i]
+            val course = r.getOrNull(cCourse)?.trim().orEmpty()
+            if (course.isEmpty() || course.contains("未查询") || course.contains("课程名称")) continue
+            out.add(
+                Grade(
+                    term = r.getOrNull(cTerm)?.trim().orEmpty(),
+                    course = course,
+                    credit = r.getOrNull(cCredit)?.trim().orEmpty(),
+                    score = r.getOrNull(cScore)?.trim().orEmpty(),
+                    gpa = r.getOrNull(cGpa)?.trim().orEmpty(),
+                    raw = r.joinToString(" | ")
+                )
+            )
+        }
+        return out
+    }
 
     /**
-     * 把教务系统课表表格转成课程列表。
-     * 支持：行=节次、列=星期一…星期日，单元格可带 rowspan 合并连续节次。
-     * 每门课都带上单元格原文（Course.raw）、原始节次文字与实际周次文字，供详情页原样展示。
+     * 学籍卡片：院系 / 专业 / 学制 / 班级 / 学号 / 姓名 等，标签后面跟值，
+     * 有的写成「院系：人工智能与软件学院」，有的标签与值分属两格，两种都认。
      */
-    fun parseTimetable(html: String): List<Course> {
-        val table = pickTimetableTable(html) ?: return emptyList()
-        val rowRe = Regex("<tr\\b[^>]*>(.*?)</tr>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val cellRe = Regex(
-            "<t[dh]\\b([^>]*)>(.*?)</t[dh]>",
-            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
-        )
-        val rowList = rowRe.findAll(table).map { it.groupValues[1] }.toList()
-        if (rowList.size < 2) return emptyList()
-
-        // 每个单元格存成「属性 + 分隔符 + 正文」，避免再拼一次正则
-        val cellsOf: (String) -> List<Pair<String, String>> = { row ->
-            cellRe.findAll(row).map { it.groupValues[1] to it.groupValues[2] }.toList()
-        }
-
-        // 1) 表头认星期列
-        val dayOfColumn = HashMap<Int, Int>()
-        run {
-            var c = 0
-            for ((attrs, body) in cellsOf(rowList[0])) {
-                val m = Regex("(?:星期|周)([一二三四五六日天1-7])").find(plain(body))
-                if (m != null) dayOfColumn[c] = weekdayOf(m.groupValues[1])
-                var span = Regex("colspan\\s*=\\s*[\"']?(\\d+)", RegexOption.IGNORE_CASE)
-                    .find(attrs)?.groupValues?.get(1)?.toIntOrNull() ?: 1
-                if (span < 1) span = 1
-                c += span
-            }
-        }
-        val headerHasDays = dayOfColumn.size >= 3
-
-        val occupied = HashSet<Int>()
-        val out = ArrayList<Course>()
-        val firstColIsLabel = run {
-            val head = cellsOf(rowList[0]).firstOrNull() ?: return@run false
-            val t = plain(head.second)
-            t.contains("节次") || t.contains("时间") || t.contains("星期")
-        }
-
-        for ((r, rowHtml) in rowList.withIndex()) {
-            if (r == 0) continue
-            var c = 0
-            for ((attrs, body) in cellsOf(rowHtml)) {
-                while (occupied.contains(r * 16 + c)) c++
-                val rowspan = Regex("rowspan\\s*=\\s*[\"']?(\\d+)", RegexOption.IGNORE_CASE)
-                    .find(attrs)?.groupValues?.get(1)?.toIntOrNull() ?: 1
-                val colspan = Regex("colspan\\s*=\\s*[\"']?(\\d+)", RegexOption.IGNORE_CASE)
-                    .find(attrs)?.groupValues?.get(1)?.toIntOrNull() ?: 1
-                if (rowspan > 1 || colspan > 1) {
-                    for (dr in 0 until rowspan) {
-                        for (dc in 0 until colspan) {
-                            if (dr == 0 && dc == 0) continue
-                            occupied.add((r + dr) * 16 + (c + dc))
-                        }
-                    }
-                }
-                val col = c
-                c += colspan
-                val lines = cellLines(body)
-                if (lines.isEmpty()) continue
-
-                // 节次列本身（第1节 / 1-2 节）不作为课程块
-                if (firstColIsLabel && col == 0) continue
-
-                val weekday = when {
-                    headerHasDays -> dayOfColumn[col] ?: (if (col == 0 && !firstColIsLabel) 1 else -1)
-                    else -> col
-                }
-                if (weekday !in 1..7) continue
-
-                // 节次：优先用行首标签的数字，否则按行号推算
-                val labelText = plain(lines.first())
-                val labelNum = Regex("(\\d{1,2})").find(labelText)?.groupValues?.get(1)?.toIntOrNull()
-                val startPeriod = (labelNum ?: r).coerceIn(1, 12)
-                val endPeriod = (startPeriod + rowspan - 1).coerceIn(startPeriod, 12)
-
-                var name = ""
-                for (line in lines) {
-                    if (line.length < 2) continue
-                    if (line.contains("星期") || line.contains("节次")) continue
-                    if (Regex("^第?\\d{1,2}(-\\d{1,2})?节?$").matches(line)) continue
-                    name = line
-                    break
-                }
-                if (name.isEmpty()) continue
-                val rest = lines.filter { it != name }
-                var weekLine: String? = null
-                for (line in rest) {
-                    if (line.contains("周")) {
-                        weekLine = line
-                        break
-                    }
-                }
-                val periodInCell = if (weekLine == null) {
-                    null
-                } else {
-                    Regex("\\(([^)]*节[^)]*)\\)").find(weekLine!!)?.groupValues?.get(1)
-                }
-                var location = ""
-                for (line in rest) {
-                    if (line == weekLine) continue
-                    if (line.contains("楼") || line.contains("教") || line.contains("室") ||
-                        line.contains("馆") || line.contains("场") || line.contains("区") ||
-                        line.contains("机房") || line.contains("实验")
-                    ) {
-                        location = line
-                        break
-                    }
-                }
-                var teacher = ""
-                for (line in rest) {
-                    if (line == weekLine || line == location) continue
-                    if (line.length in 2..20 && Regex("[\\u4e00-\\u9fa5·,，、 ]{2,20}").matches(line)) {
-                        teacher = line
-                        break
-                    }
-                }
-                out.add(
-                    Course(
-                        name = name.take(60),
-                        teacher = teacher,
-                        location = location.take(40),
-                        weekday = weekday,
-                        startPeriod = startPeriod,
-                        endPeriod = endPeriod,
-                        weeks = normalizeWeeks(weekLine),
-                        color = 0,
-                        source = "jwxt",
-                        raw = lines.joinToString("\n"),
-                        periodText = periodInCell ?: labelText,
-                        weekText = weekLine ?: ""
-                    )
-                )
-            }
-        }
-        return out.distinctBy {
-            it.name + "|" + it.weekday + "|" + it.startPeriod + "|" + it.endPeriod + "|" + it.weeks
-        }
-    }
-
-    // ---------------- 考试 / 成绩 / 学生信息 ----------------
-
-    /** 找表头里同时出现这些关键字的行；找不到返回 null。 */
-    private fun headerRowOf(rows: List<List<String>>, vararg keys: String): Pair<Int, List<String>>? {
-        for ((i, row) in rows.withIndex()) {
-            val joined = row.joinToString(" ")
-            var all = true
-            for (k in keys) if (!joined.contains(k)) all = false
-            if (all) return i to row
-        }
-        return null
-    }
-
-    private fun colOf(header: List<String>, vararg keys: String): Int {
-        for ((i, cell) in header.withIndex()) {
-            for (k in keys) if (cell.contains(k)) return i
-        }
-        return -1
-    }
-
-    fun parseExams(html: String): List<Exam> {
-        for (rows in tables(html)) {
-            val hit = headerRowOf(rows, "课程", "考试") ?: headerRowOf(rows, "考试") ?: null ?: continue
-            val header = hit.second
-            val ciCourse = colOf(header, "课程", "科目")
-            val ciTime = colOf(header, "时间", "日期")
-            val ciLoc = colOf(header, "地点", "考场", "教室")
-            val ciSeat = colOf(header, "座位", "座号")
-            if (ciCourse < 0) continue
-            val out = ArrayList<Exam>()
-            for (row in rows.drop(hit.first + 1)) {
-                val course = row.getOrNull(ciCourse)?.trim().orEmpty()
-                if (course.isBlank() || course == "课程") continue
-                out.add(
-                    Exam(
-                        course = course,
-                        time = row.getOrNull(ciTime)?.trim().orEmpty(),
-                        location = row.getOrNull(ciLoc)?.trim().orEmpty(),
-                        seat = row.getOrNull(ciSeat)?.trim().orEmpty(),
-                        raw = row.joinToString(" | ")
-                    )
-                )
-            }
-            if (out.isNotEmpty()) return out
-        }
-        return emptyList()
-    }
-
-    fun parseGrades(html: String): List<Grade> {
-        for (rows in tables(html)) {
-            val hit = headerRowOf(rows, "课程", "成绩") ?: continue
-            val header = hit.second
-            val ciTerm = colOf(header, "学期", "学年")
-            val ciCourse = colOf(header, "课程", "科目")
-            val ciCredit = colOf(header, "学分")
-            val ciScore = colOf(header, "成绩", "分数", "总评")
-            val ciGpa = colOf(header, "绩点")
-            if (ciCourse < 0) continue
-            val out = ArrayList<Grade>()
-            for (row in rows.drop(hit.first + 1)) {
-                val course = row.getOrNull(ciCourse)?.trim().orEmpty()
-                if (course.isBlank() || course == "课程") continue
-                out.add(
-                    Grade(
-                        term = row.getOrNull(ciTerm)?.trim().orEmpty(),
-                        course = course,
-                        credit = row.getOrNull(ciCredit)?.trim().orEmpty(),
-                        score = row.getOrNull(ciScore)?.trim().orEmpty(),
-                        gpa = row.getOrNull(ciGpa)?.trim().orEmpty(),
-                        raw = row.joinToString(" | ")
-                    )
-                )
-            }
-            if (out.isNotEmpty()) return out
-        }
-        return emptyList()
-    }
-
-    /** 从学生首页 / 个人信息页里抠姓名、学号、学院、专业、班级。 */
     fun parseProfile(html: String): JwProfile {
-        val text = cellLines(html)
-        fun lineAfter(vararg keys: String): String {
-            for (key in keys) {
-                for ((i, line) in text.withIndex()) {
-                    val idx = line.indexOf(key)
-                    if (idx < 0) continue
-                    val after = line.substring(idx + key.length).trim().trim('：', ':', ' ', '>')
-                    if (after.isNotBlank()) return after.take(40)
-                    val next = text.getOrNull(i + 1)?.trim().orEmpty()
-                    if (next.isNotBlank()) return next.take(40)
+        if (html.isBlank()) return JwProfile()
+        val flat = html
+            .replace(Regex("<script[^>]*>[\\s\\S]*?</script>", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("<br[^>]*>", RegexOption.IGNORE_CASE), "|")
+            .replace(Regex("<[^>]+>"), "|")
+            .replace("&nbsp;", " ")
+        val toks = flat.split("|", "\n").map { it.trim() }.filter { it.isNotEmpty() }
+        fun pick(vararg labels: String): String {
+            for (label in labels) {
+                for (i in toks.indices) {
+                    val t = toks[i]
+                    if (t == label || t.startsWith(label + "：") || t.startsWith(label + ":")) {
+                        if (t.length > label.length + 1) {
+                            val v = t.substring(label.length + 1).trim()
+                            if (v.isNotEmpty()) return v
+                        }
+                        val nx = toks.getOrNull(i + 1).orEmpty()
+                        if (nx.isNotEmpty() && nx.length <= 40) return nx
+                    }
                 }
             }
             return ""
         }
-        var sid = ""
-        val m = Regex("(?:学号|帐号|账号)[：:]?[ 0-9]{8,14}").find(html)
-        if (m != null) {
-            sid = Regex("[0-9]{8,14}").find(m.value)?.value.orEmpty()
-        }
-        val sidText = if (sid.isNotEmpty()) sid else lineAfter("学号", "帐号", "账号")
         return JwProfile(
-            name = lineAfter("姓名"),
-            sid = sidText,
-            college = lineAfter("学院", "系别", "院系"),
-            major = lineAfter("专业"),
-            clazz = lineAfter("班级"),
-            raw = text.joinToString("\n").take(2000)
+            name = pick("姓名"),
+            sid = pick("学号"),
+            college = pick("院系", "学院", "系部"),
+            major = pick("专业"),
+            clazz = pick("班级"),
+            raw = toks.joinToString(" | ").take(2000)
         )
     }
 
-    // ---------------- 文本工具 ----------------
-
-    /** 把单元格 HTML 拆成若干行文本（换行标签、段落结束都当换行），去掉空行与占位符。 */
-    private fun cellLines(html: String): List<String> {
-        val text = html
-            .replace(Regex("<br[^>]*>", RegexOption.IGNORE_CASE), "\n")
-            .replace(Regex("</p[^>]*>", RegexOption.IGNORE_CASE), "\n")
-            .replace(Regex("</t[dh][^>]*>", RegexOption.IGNORE_CASE), "\n")
-            .replace(Regex("</tr[^>]*>", RegexOption.IGNORE_CASE), "\n")
-            .replace(Regex("<[^>]+>"), "")
-            .replace("&nbsp;", " ")
-            .replace("&amp;", "&")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-        return text.split("\n").map { it.trim() }.filter { it.isNotEmpty() && it != "-" }
-    }
-
-    private fun plain(html: String): String =
-        html.replace(Regex("<[^>]+>"), "").replace("&nbsp;", " ").trim()
-
-    private fun weekdayOf(ch: String): Int = when (ch) {
-        "一", "1" -> 1
-        "二", "2" -> 2
-        "三", "3" -> 3
-        "四", "4" -> 4
-        "五", "5" -> 5
-        "六", "6" -> 6
-        else -> 7
-    }
-
-    /** 周次归一：保留区间与单双周信息，例如「1-16」「1-8,10-16 单」。 */
-    private fun normalizeWeeks(raw: String?): String {
-        if (raw.isNullOrBlank()) return "1-16"
-        val nums = ArrayList<Int>()
-        for (m in Regex("\\d+").findAll(raw)) {
-            val v = m.value.toIntOrNull() ?: 0
-            if (v in 1..30) nums.add(v)
+    private fun rowsOf(html: String): List<List<String>> {
+        if (html.isBlank()) return emptyList()
+        val body = html.replace(
+            Regex("<script[^>]*>[\\s\\S]*?</script>", RegexOption.IGNORE_CASE), ""
+        )
+        val out = ArrayList<List<String>>()
+        for (r in Regex("<tr[^>]*>([\\s\\S]*?)</tr>", RegexOption.IGNORE_CASE).findAll(body)) {
+            val cells = rawCells(r.groupValues[1]).map { plain(it) }
+            if (cells.isNotEmpty()) out.add(cells)
         }
-        if (nums.isEmpty()) return "1-16"
-        val first = nums[0]
-        val second = if (nums.size > 1) nums[1] else first
-        val lo = if (first < second) first else second
-        val hi = if (first < second) second else first
-        val base = if (lo == hi) "" + lo else "" + lo + "-" + hi
-        return when {
-            raw.contains("单") -> base + " 单"
-            raw.contains("双") -> base + " 双"
-            else -> base
+        return out
+    }
+
+    private fun rawCells(row: String): List<String> =
+        Regex("<t[dh][^>]*>([\\s\\S]*?)</t[dh]>", RegexOption.IGNORE_CASE)
+            .findAll(row).map { it.groupValues[1] }.toList()
+
+    private fun colAt(head: List<String>, vararg keys: String): Int =
+        head.indexOfFirst { h -> keys.any { k -> h.contains(k) } }
+
+    /** 去标签、还原换行与实体；返回的每行已 trim。 */
+    private fun plain(html: String): String {
+        var t = html.replace(Regex("<br[^>]*>", RegexOption.IGNORE_CASE), "\n")
+        t = t.replace(Regex("<[^>]+>"), "")
+        t = t.replace("&nbsp;", " ")
+        t = t.replace("&amp;", "&")
+        t = t.replace("&lt;", "<")
+        t = t.replace("&gt;", ">")
+        t = t.replace("&quot;", "\"")
+        return t.split("\n").joinToString("\n") { line ->
+            line.replace(Regex("[ \\t\\u00a0]+"), " ").trim()
         }
     }
 }

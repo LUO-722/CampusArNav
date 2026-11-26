@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 暖色系：暖褐底 + 琥珀主色，降低蓝光刺激 -->
-    <color name="bg_dark">#1A120C</color>
-    <color name="bg_card">#2A1E15</color>
-    <color name="accent">#FFB067</color>
-    <color name="text_primary">#FBEFE0</color>
-    <color name="text_secondary">#C7A98C</color>
+    <!-- Ins 风格：粉 + 浅蓝，浅色底 + 白卡片 + 柔和描边 -->
+    <color name="bg_dark">#FFF7FB</color>
+    <color name="bg_card">#FFFFFF</color>
+    <color name="accent">#E8447A</color>
+    <color name="accent_soft">#FFE3EE</color>
+    <color name="accent_blue">#7FC4E8</color>
+    <color name="blue_ink">#2E7FA8</color>
+    <color name="blue_soft">#EAF6FD</color>
+    <color name="border">#F4DEE8</color>
+    <color name="text_primary">#3D3340</color>
+    <color name="text_secondary">#9C8AA3</color>
 </resources>

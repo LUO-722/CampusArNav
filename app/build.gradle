@@ -11,8 +11,8 @@ android {
         applicationId "com.campus.arnav"
         minSdk 24
         targetSdk 36
-        versionCode 40
-        versionName "0.15.0"
+        versionCode 41
+        versionName "0.16.0"
 
         // 内置云端通道（阿里云百炼 / DashScope OpenAI 兼容）。
         // Key 只从本机 local.properties 读取，编译进包，界面上不出现任何接口/Key 配置。
@@ -30,6 +30,15 @@ android {
     def aiVisionModels = aiProps.getProperty("dashscope.vision_models", "qwen3-vl-plus")
     buildConfigField "String", "DASHSCOPE_VISION_MODEL", "\"${aiVisionModels.split(',')[0].trim()}\""
     buildConfigField "String", "DASHSCOPE_VISION_MODELS", "\"${aiVisionModels}\""
+
+        // 高德地图 Key：同样只从本机 local.properties 读取（没有就空串，界面用 AmapEnv.ready() 降级）。
+        // Manifest 里的 <meta-data android:name="com.amap.api.v2.apikey" android:value="${AMAP_KEY}"/> 靠这里替换。
+        def amapKey = aiProps.getProperty("amap.key", System.getenv("AMAP_KEY") ?: "")
+        manifestPlaceholders = [AMAP_KEY: amapKey]
+        buildConfigField "String", "AMAP_KEY", "\"${amapKey.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+        // 只用 arm64：高德 so 双 ABI 占 33MB，本机（2510DRK44C）是 arm64，去掉 armeabi-v7a 省 13MB。
+        ndk { abiFilters 'arm64-v8a' }
     }
 
     buildTypes {
@@ -63,4 +72,9 @@ dependencies {
 
     // 本机离线 OCR：ML Kit 中文文字识别（模型随 APK 打包，不联网、不上传图片、无需 Key）
     implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
+
+    // 高德地图 SDK（3dmap 这个包同时提供 2D 地图展示）。
+    // 版本固定 10.0.600：这是腾讯云镜像与阿里云 public 上真实存在的最新版（2024-03 发布），
+    // 可用性探测见 _amap_skeleton.md。Key 不写在这里，运行时由 AmapEnv 读 BuildConfig。
+    implementation 'com.amap.api:3dmap:10.0.600'
 }

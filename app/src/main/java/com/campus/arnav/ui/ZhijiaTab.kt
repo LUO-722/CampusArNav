@@ -202,8 +202,19 @@ class ZhijiaTab(
                         post { doneExtract(); status.text = "本机识字结果为空，无法提取活动。" }
                         return@Thread
                     }
-                    val out = if (online) NoticeExtractor.extractText(ctx, text) else OfflineExtractor.extract(text)
-                    post { doneExtract(); showDrafts(out, offline = !online) }
+                    var usedOffline = !online
+                    val out = if (online) {
+                        try {
+                            NoticeExtractor.extractText(ctx, text)
+                        } catch (e: Exception) {
+                            // 云端不通（断网切换、限流、Key 失效）时不让用户空手：回落本机规则
+                            usedOffline = true
+                            OfflineExtractor.extract(text)
+                        }
+                    } else {
+                        OfflineExtractor.extract(text)
+                    }
+                    post { doneExtract(); showDrafts(out, offline = usedOffline) }
                 } catch (e: Exception) {
                     post { doneExtract(); status.text = "提取失败：${e.message}" }
                 }
@@ -229,8 +240,18 @@ class ZhijiaTab(
             Thread {
                 try {
                     val body = if (mode == 2) WebPage.fetch(text) else text
-                    val out = if (online) NoticeExtractor.extractText(ctx, body) else OfflineExtractor.extract(body)
-                    post { doneExtract(); showDrafts(out, offline = !online) }
+                    var usedOffline = !online
+                    val out = if (online) {
+                        try {
+                            NoticeExtractor.extractText(ctx, body)
+                        } catch (e: Exception) {
+                            usedOffline = true
+                            OfflineExtractor.extract(body)
+                        }
+                    } else {
+                        OfflineExtractor.extract(body)
+                    }
+                    post { doneExtract(); showDrafts(out, offline = usedOffline) }
                 } catch (e: Exception) {
                     post {
                         doneExtract()
@@ -259,7 +280,7 @@ class ZhijiaTab(
         status.text = when {
             list.isEmpty() && offline -> "本机没认出时间地点，可手动在课程表里＋活动。"
             list.isEmpty() -> "没有识别到需要参加的活动，换一段原文试试。"
-            offline -> "本机规则识别成功 ${list.size} 项（未配置 Key，文字/图片都在本机处理），核对后录入。"
+            offline -> "本机规则识别成功 ${list.size} 项（离线处理，文字/图片都没出手机），核对后录入。"
             else -> "识别到 ${list.size} 项活动，核对后录入。"
         }
         status.setTextColor(if (list.isEmpty()) Color.parseColor("#E8447A") else ctx.color(R.color.text_secondary))

@@ -124,7 +124,7 @@ class ChatTab(
         modelLabel.text = when {
             p.ready() && p.viaProxy() -> "模型：${p.model} · 走自建代理（App 内无需 Key）"
             p.ready() -> "模型：${p.model}（文本）"
-            else -> "离线知识库模式（未配置 AI，点 ☰ 可接入；不配置也能问答）"
+            else -> "离线知识库模式（当前无网络或云端不可用，问答走本机知识库）"
         }
     }
 
@@ -179,7 +179,9 @@ class ChatTab(
                     post { completeOffline(reply) }
                 }
             } catch (e: Exception) {
-                post { fail("出错了：${e.message}") }
+                // 断网 / 模型全部限流 / Key 失效：不让对话断在这里，直接用离线知识库答
+                val reply = answerOffline(context, text)
+                post { completeOffline(reply + "\n\n（云端暂时不可用，已用离线知识库回答）") }
             }
         }.start()
     }
@@ -195,15 +197,15 @@ class ChatTab(
             emptyList()
         }
         if (hits.isEmpty()) {
-            return "本机知识库里暂时没找到和「$query」相关的内容。换个说法（例如「图书馆 开放时间」）再试，" +
-                "或点左上角 ☰ 到「设置 → AI 服务」接入 AI 后追问。\n\n（离线知识库回答；配置 AI 后可对话式追问）"
+            return "本机知识库里暂时没找到和「$query」相关的内容。换个说法（例如「图书馆 开放时间」「宿舍门禁」）再试，" +
+                "联网后再问一次会用云端模型补充回答。\n\n（离线知识库回答）"
         }
         val sb = StringBuilder("根据学校知识库：")
         hits.forEachIndexed { i, h ->
             sb.append("\n${i + 1}. ").append(h.title)
             sb.append("\n").append(h.text.trim().take(260).replace("\n", " "))
         }
-        sb.append("\n\n（离线知识库回答；配置 AI 后可对话式追问）")
+        sb.append("\n\n（离线知识库回答）")
         return sb.toString()
     }
 

@@ -1,6 +1,8 @@
 package com.campus.arnav.data
 
 import android.content.Context
+import com.campus.arnav.BuildConfig
+import com.campus.arnav.core.NetState
 
 /**
  * 一次请求要用的通道参数。
@@ -15,8 +17,14 @@ data class Provider(
     /** 自建服务端代理地址（OpenAI 兼容），空 = 直连。 */
     val proxyBase: String = "",
     /** 代理访问令牌，可空（代理只认 App 内置 token 时留空即可）。 */
-    val proxyToken: String = ""
+    val proxyToken: String = "",
+    /** 备选模型：主模型 404/429/5xx 时按顺序自动切换（内置通道用）。 */
+    val models: List<String> = emptyList()
 ) {
+    /** 依次尝试的模型链：主模型在前，去重去空。 */
+    fun modelChain(): List<String> =
+        (listOf(model) + models).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+
     fun viaProxy(): Boolean = proxyBase.isNotBlank()
 
     /** 实际请求的 base：有代理走代理，否则直连。 */
@@ -88,9 +96,29 @@ object SettingsStore {
         return copy(proxyBase = base, proxyToken = aiProxyToken(ctx))
     }
 
-    /** 聊天用的模型：默认 DeepSeek；用户可在设置里切到识图模型。 */
-    fun chatProvider(ctx: Context): Provider =
-        if (chatUseVision(ctx)) vision(ctx) else deepseek(ctx)
+    /**
+     * 内置云端通道：阿里云百炼（DashScope，OpenAI 兼容）。
+     * Key 在构建时从 local.properties 读入 [BuildConfig]，界面上不暴露地址与 Key。
+     */
+    fun builtin(ctx: Context): Provider = Provider(
+        BuildConfig.DASHSCOPE_BASE,
+        BuildConfig.DASHSCOPE_KEY,
+        BuildConfig.DASHSCOPE_MODEL,
+        models = BuildConfig.DASHSCOPE_MODELS.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    ).withProxy(ctx)
+
+    /** 设置页显示的通道名；没内置 Key 时如实写离线。 */
+    fun aiApiName(ctx: Context): String = if (BuildConfig.DASHSCOPE_KEY.isBlank()) {
+        "离线知识库（未内置云端 Key）"
+    } else {
+        "阿里云百炼 · " + BuildConfig.DASHSCOPE_MODELS.split(",").size + " 个模型自动切换"
+    }
+
+    /** 是否内置了云端通道（只看有没有 Key，不看当前网络）。 */
+    fun aiApiReady(ctx: Context): Boolean = builtin(ctx).ready()
+
+    /** 聊天用的模型：内置云端通道。 */
+    fun chatProvider(ctx: Context): Provider = builtin(ctx)
 
     fun chatUseVision(ctx: Context): Boolean =
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean("chat_vision", false)
@@ -122,10 +150,10 @@ object SettingsStore {
     fun aiProxyConfigured(ctx: Context): Boolean = aiProxyBase(ctx).isNotBlank()
 
     /** 抽取活动能否联网（有代理，或直连 Key 齐全）；否则走 [com.campus.arnav.agent.OfflineExtractor]。 */
-    fun extractOnline(ctx: Context): Boolean = deepseek(ctx).ready()
+    fun extractOnline(ctx: Context): Boolean = NetState.online(ctx) && builtin(ctx).ready()
 
     /** 对话能否联网（有代理，或聊天 Provider 可用）；否则走离线知识库。 */
-    fun chatOnline(ctx: Context): Boolean = chatProvider(ctx).ready()
+    fun chatOnline(ctx: Context): Boolean = NetState.online(ctx) && builtin(ctx).ready()
 
     // ---- 学期 ----
 

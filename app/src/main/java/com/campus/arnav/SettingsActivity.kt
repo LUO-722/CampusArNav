@@ -53,9 +53,7 @@ import com.campus.arnav.ui.textView
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var status: TextView
-    private lateinit var dsBadge: TextView
     private lateinit var aiBadge: TextView
-    private lateinit var dsKey: EditText
     private var authBadge: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,53 +76,19 @@ class SettingsActivity : AppCompatActivity() {
 
         box.addView(textView(this, "设置", 26f, color(R.color.text_primary), bold = true))
         box.addView(textView(this,
-            "Key 与代理令牌只存本机，不上传；没有 Key 也能用：自动降级为本机规则识别 + 离线知识库。",
+            "无需任何配置：有网络自动用云端模型，没有网络自动用离线知识库 + 本机规则。",
             12f, color(R.color.text_secondary)
         ))
 
-        val ds = SettingsStore.deepseek(this)
-
-        // ① DeepSeek
-        dsBadge = badge(false)
-        val dsCard = card(this, 14)
-        dsCard.addView(headerRow("DeepSeek", "文本问答 · 录活动 · 加课", dsBadge))
-        dsKey = field(dsCard, "API Key", ds.key).apply { maskKey() }
-        val dsEye = eyeToggle(dsCard, dsKey)
-        // eyeToggle 自己会挂到 dsCard 上，这里不能再 addView，否则 child already has a parent
-        val dsBase = field(dsCard, "接口地址", ds.base)
-        val dsModel = field(dsCard, "模型名", ds.model)
-        val dsAdv = advanced(dsCard, "高级：接口地址 / 模型名") { listOf(dsBase, dsModel) }
-        // 高级折叠区默认收起，字段先建好再收起
-        setAdvancedVisible(dsCard, dsAdv, false)
-        dsCard.addView(actionRow(
-            "测试连接" to { testProvider(dsBase, dsKey, dsModel, false) },
-            "高级" to {
-                setAdvancedVisible(dsCard, dsAdv, dsAdv.visibility != View.VISIBLE)
-            }
-        ))
-        box.addView(dsCard, cardLp())
-
-        // ② AI 服务（可选）：自建服务端代理。填了以后 App 内不再需要 DeepSeek Key。
-        aiBadge = badge(false)
+        // ① AI 服务：内置，界面上不出现任何接口地址 / API Key / 模型配置
+        aiBadge = badge(true)
         val aiCard = card(this, 14)
-        aiCard.addView(headerRow("AI 服务（可选）", "自建代理 · App 内无需 API Key", aiBadge))
+        aiCard.addView(headerRow("AI 服务", SettingsStore.aiApiName(this), aiBadge))
         aiCard.addView(textView(this,
-            "自建服务端代理后填这里，App 内不再需要 API Key；留空则用本机规则识别 + 离线知识库，功能照常可用。\n" +
-                "请求会发到「代理地址 /chat/completions」，与 DeepSeek 接口同构，把 Key 放在服务端即可，学生不用自己申请。",
+            "已内置，无需任何配置。有网络时自动接入云端模型（问答、录活动、写课表都在云端判断）；" +
+                "没有网络时自动切到离线知识库 + 本机规则，功能照常可用。",
             12f, color(R.color.text_secondary)
         ).apply { setPadding(0, dp(6), 0, dp(2)) })
-        val aiBase = field(aiCard, "代理地址（OpenAI 兼容，可留空）", SettingsStore.aiProxyBase(this))
-        val aiToken = field(aiCard, "访问令牌（可留空）", SettingsStore.aiProxyToken(this)).apply { maskKey() }
-        eyeToggle(aiCard, aiToken)
-        aiCard.addView(actionRow(
-            "测试代理" to { testProxy(aiBase, aiToken) },
-            "清空代理" to {
-                aiBase.setText("")
-                aiToken.setText("")
-                status.text = "已清空代理输入，记得点底部「保存设置」；保存后回到本机规则 + 离线知识库。"
-            }
-        ))
-        box.addView(aiCard, cardLp())
 
         // ③ 教务系统（登录态 / 同步）
         val authCard = card(this, 14)
@@ -212,7 +176,7 @@ class SettingsActivity : AppCompatActivity() {
         val save = button(this, "保存设置", color(R.color.accent), Color.parseColor("#FFFFFF")).apply {
             textSize = 16f
             setOnClickListener {
-                saveAll(dsBase, dsKey, dsModel, aiBase, aiToken, semStart, semWeeks, semName)
+                saveAll(semStart, semWeeks, semName)
             }
         }
         box.addView(save, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(6) })
@@ -293,17 +257,13 @@ class SettingsActivity : AppCompatActivity() {
     // ---------------- 保存 ----------------
 
     private fun saveAll(
-        dsBase: EditText, dsKey: EditText, dsModel: EditText,
-        aiBase: EditText, aiToken: EditText,
         semStart: EditText, semWeeks: EditText, semName: EditText
     ) {
-        SettingsStore.saveDeepSeek(this, dsBase.text.toString(), dsKey.text.toString(), dsModel.text.toString())
-        SettingsStore.saveAiProxy(this, aiBase.text.toString(), aiToken.text.toString())
 
         val startText = semStart.text.toString().trim()
         val weeksInt = semWeeks.text.toString().trim().toIntOrNull()
         if (ScheduleLogic.parseDate(startText) == null) {
-            status.text = "已保存 AI 与代理设置；学期设置未保存：开始日应为 yyyy-MM-dd。"
+            status.text = "学期设置未保存：开始日应为 yyyy-MM-dd。"
         } else {
             SettingsStore.saveSemester(
                 this, startText,
@@ -318,9 +278,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun refreshBadges() {
-        // 徽标分开看：DeepSeek 徽标只反映「自己的 Key」，代理单独一个徽标
-        paintBadge(dsBadge, SettingsStore.deepseek(this).copy(proxyBase = "", proxyToken = "").ready())
-        paintBadge(aiBadge, SettingsStore.aiProxyConfigured(this), "代理已配置", "代理未配置")
+        paintBadge(aiBadge, SettingsStore.aiApiReady(this), "已内置", "未内置")
     }
 
     // ---------------- 诊断动作 ----------------
@@ -375,70 +333,6 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun testProvider(
-        base: EditText, key: EditText, model: EditText, vision: Boolean
-    ) {
-        status.text = "测试中…"
-        if (vision) {
-            SettingsStore.saveVision(this, base.text.toString(), key.text.toString(), model.text.toString())
-        } else {
-            SettingsStore.saveDeepSeek(this, base.text.toString(), key.text.toString(), model.text.toString())
-        }
-        // 直连测试：显式去掉代理，确保测的是「自己的 Key」这条通道
-        val p = (if (vision) SettingsStore.vision(this) else SettingsStore.deepseek(this))
-            .copy(proxyBase = "", proxyToken = "")
-        if (!p.ready()) {
-            status.text = "还没填 Key：可填自己的 Key 测直连，或到「AI 服务」填自建代理后点「测试代理」；" +
-                "两者都不填也能用（本机规则识别 + 离线知识库）。"
-            return
-        }
-        Thread {
-            try {
-                val r = LlmClient.chat(p, listOf(ChatMsg("user", "只回复两个字：正常")))
-                runOnUiThread {
-                    status.text = (if (vision) "VL 连接成功：" else "连接成功：") + r.take(60)
-                    refreshBadges()
-                }
-            } catch (e: Exception) {
-                runOnUiThread { status.text = "连接失败：${e.message}" }
-            }
-        }.start()
-    }
-
-    /**
-     * 测试自建代理：成功才落库（避免把打错的地址存进去后所有 AI 请求都失败）。
-     * 请求形态与正式调用一致：POST {代理地址}/chat/completions。
-     */
-    private fun testProxy(base: EditText, token: EditText) {
-        var b = base.text.toString().trim()
-        if (b.isBlank()) {
-            status.text = "还没填代理地址。留空就是本机规则 + 离线知识库模式，一样能用。"
-            return
-        }
-        // 用户常只填域名：测试时先补 https://（保存时 SettingsStore.saveAiProxy 也会归一）
-        if (!b.startsWith("http://", true) && !b.startsWith("https://", true)) b = "https://$b"
-        status.text = "测试代理中…"
-        val model = SettingsStore.deepseek(this).model.ifBlank { "deepseek-chat" }
-        val tok = token.text.toString().trim()
-        val p = Provider(base = "", key = "", model = model, proxyBase = b, proxyToken = tok)
-        val addr = b
-        Thread {
-            try {
-                val r = LlmClient.chat(p, listOf(ChatMsg("user", "只回复两个字：正常")))
-                runOnUiThread {
-                    SettingsStore.saveAiProxy(this, addr, tok)
-                    base.setText(addr)
-                    status.text = "代理连接成功：${r.take(60)}"
-                    refreshBadges()
-                    setResult(RESULT_OK)
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    status.text = "代理连接失败：${e.message}（地址需以 http:// 或 https:// 开头，且服务端兼容 /chat/completions）"
-                }
-            }
-        }.start()
-    }
 
     // ---------------- 小部件 ----------------
 

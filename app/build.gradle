@@ -11,8 +11,22 @@ android {
         applicationId "com.campus.arnav"
         minSdk 24
         targetSdk 36
-        versionCode 29
-        versionName "0.10.0"
+        versionCode 30
+        versionName "0.11.0"
+
+        // 内置云端通道（阿里云百炼 / DashScope OpenAI 兼容）。
+        // Key 只从本机 local.properties 读取，编译进包，界面上不出现任何接口/Key 配置。
+        def aiProps = new Properties()
+        def aiFile = rootProject.file("local.properties")
+        if (aiFile.exists()) { aiFile.withInputStream { aiProps.load(it) } }
+        def aiKey = aiProps.getProperty("dashscope.key", System.getenv("DASHSCOPE_KEY") ?: "")
+        def aiBase = aiProps.getProperty("dashscope.base", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        def aiModels = aiProps.getProperty("dashscope.models", "qwen-plus,qwen-max,qwen-flash,qwen-long,qwen3-vl-plus")
+        def aiModel = aiModels.split(",")[0].trim()
+        buildConfigField "String", "DASHSCOPE_KEY", "\"${aiKey}\""
+        buildConfigField "String", "DASHSCOPE_BASE", "\"${aiBase}\""
+        buildConfigField "String", "DASHSCOPE_MODEL", "\"${aiModel}\""
+        buildConfigField "String", "DASHSCOPE_MODELS", "\"${aiModels}\""
     }
 
     buildTypes {
@@ -25,6 +39,9 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+    buildFeatures {
+        buildConfig true
     }
     kotlinOptions {
         jvmTarget = '17'

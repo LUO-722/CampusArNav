@@ -28,22 +28,26 @@ object LlmClient {
         "识图通道未配置：可在「设置 → AI 服务」填自建代理，或填通义 VL 的 Key；" +
             "只看图片文字的话，选图后本机 OCR 也能用（离线、不需要 Key）。"
 
-    class LlmException(message: String) : Exception(message)
+    open class LlmException(message: String) : Exception(message)
+
+    /** 换个模型就能成功的错误：模型不存在、限流、服务端 5xx。 */
+    class RetryableLlmException(message: String) : LlmException(message)
 
     fun chat(provider: Provider, messages: List<ChatMsg>, jsonMode: Boolean = false): String {
         if (!provider.ready()) throw LlmException(NO_CHANNEL)
-        val body = JSONObject().apply {
-            put("model", provider.model)
-            put("temperature", 0.3)
-            put("stream", false)
-            val arr = JSONArray()
-            for (m in messages) {
-                arr.put(JSONObject().put("role", m.role).put("content", m.content))
-            }
-            put("messages", arr)
-            if (jsonMode) put("response_format", JSONObject().put("type", "json_object"))
+        val text = post(provider) { model ->
+            JSONObject().apply {
+                put("model", model)
+                put("temperature", 0.3)
+                put("stream", false)
+                val arr = JSONArray()
+                for (m in messages) {
+                    arr.put(JSONObject().put("role", m.role).put("content", m.content))
+                }
+                put("messages", arr)
+                if (jsonMode) put("response_format", JSONObject().put("type", "json_object"))
+            }.toString()
         }
-        val text = post(provider, body.toString())
         return parseContent(text)
     }
 
@@ -59,13 +63,14 @@ object LlmClient {
                 )
             )
         }
-        val body = JSONObject().apply {
-            put("model", provider.model)
-            put("messages", JSONArray().apply {
-                put(JSONObject().put("role", "user").put("content", content))
-            })
+        val text = post(provider) { model ->
+            JSONObject().apply {
+                put("model", model)
+                put("messages", JSONArray().apply {
+                    put(JSONObject().put("role", "user").put("content", content))
+                })
+            }.toString()
         }
-        val text = post(provider, body.toString())
         return parseContent(text)
     }
 
@@ -98,14 +103,15 @@ object LlmClient {
         if (!appended) {
             arr.put(JSONObject().put("role", "user").put("content", multimodal(userText, imageBase64, mime)))
         }
-        val body = JSONObject().apply {
-            put("model", provider.model)
-            put("temperature", 0.3)
-            put("stream", false)
-            put("messages", arr)
-            put("response_format", JSONObject().put("type", "json_object"))
-        }
-        return parseContent(post(provider, body.toString()))
+        return parseContent(post(provider) { model ->
+            JSONObject().apply {
+                put("model", model)
+                put("temperature", 0.3)
+                put("stream", false)
+                put("messages", arr)
+                put("response_format", JSONObject().put("type", "json_object"))
+            }.toString()
+        })
     }
 
     private fun multimodal(text: String, imageBase64: String, mime: String): JSONArray = JSONArray().apply {
@@ -118,7 +124,24 @@ object LlmClient {
         )
     }
 
-    private fun post(provider: Provider, body: String): String {
+    /**
+     * 按模型链依次尝试：主模型不存在 / 限流 / 服务端错误时自动换下一个，
+     * 全部失败才把最后一个错误抛出去。这样账号里换了模型、某个模型临时限流都能自愈。
+     */
+    private fun post(provider: Provider, buildBody: (String) -> String): String {
+        val chain = provider.modelChain().ifEmpty { listOf(provider.model) }
+        var last: LlmException? = null
+        for (m in chain) {
+            try {
+                return postOnce(provider, buildBody(m))
+            } catch (e: RetryableLlmException) {
+                last = e
+            }
+        }
+        throw last ?: LlmException(NO_CHANNEL)
+    }
+
+    private fun postOnce(provider: Provider, body: String): String {
         val base = endpointBase(provider.effectiveBase())
         if (!base.startsWith("http://", true) && !base.startsWith("https://", true)) {
             throw LlmException(
@@ -152,7 +175,9 @@ object LlmClient {
                 BufferedReader(InputStreamReader(stream, StandardCharsets.UTF_8)).use { it.readText() }
             }
             if (code !in 200..299) {
-                throw LlmException(friendlyError(code, text))
+                val msg = friendlyError(code, text)
+                if (code == 404 || code == 429 || code >= 500) throw RetryableLlmException(msg)
+                throw LlmException(msg)
             }
             return text
         } catch (e: java.net.SocketTimeoutException) {

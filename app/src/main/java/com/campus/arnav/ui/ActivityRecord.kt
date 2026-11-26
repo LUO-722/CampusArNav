@@ -3,6 +3,7 @@ package com.campus.arnav.ui
 import com.campus.arnav.R
 import android.content.Context
 import com.campus.arnav.data.Activity
+import com.campus.arnav.core.Reminder
 import com.campus.arnav.data.ActivityDraft
 import com.campus.arnav.data.Course
 import com.campus.arnav.data.CourseStore
@@ -76,6 +77,7 @@ object ActivityRecord {
         val acts = activityClashes(ctx, draft.date, draft.startTime, draft.endTime)
         if (courses.isEmpty() && acts.isEmpty()) {
             CourseStore.addActivity(ctx, draft, conflict = false, source = source)
+            Reminder.scheduleAsync(ctx, force = true)
             onDone(BOTH)
             return
         }
@@ -91,6 +93,7 @@ object ActivityRecord {
             )
             .setPositiveButton("两个同时录入") { _, _ ->
                 CourseStore.addActivity(ctx, draft, conflict = true, source = source)
+                Reminder.scheduleAsync(ctx, force = true)
                 onDone(BOTH)
             }
             .setNeutralButton("保留原课程表日程") { _, _ ->
@@ -100,6 +103,7 @@ object ActivityRecord {
                 for (c in courses) CourseStore.skipCourseOn(ctx, c.id, draft.date)
                 for (a in acts) CourseStore.deleteActivity(ctx, a.id)
                 CourseStore.addActivity(ctx, draft, conflict = false, source = source)
+                Reminder.scheduleAsync(ctx, force = true)
                 onDone(NEW_ONLY)
             }
             .setCancelable(false)

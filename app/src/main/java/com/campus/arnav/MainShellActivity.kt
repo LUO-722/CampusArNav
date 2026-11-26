@@ -4,6 +4,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import com.campus.arnav.core.Reminder
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -165,6 +166,8 @@ class MainShellActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (!this::content.isInitialized) return
+        askNotifyPermission()
+        Reminder.scheduleAsync(this)
         // 从登录页（或设置页）回来：登录态 / 最近同步时间变了才刷新当前栏，
         // 登录成功后课表已被教务数据替换，需要重新读；没变化就不重建视图，保住滚动位置。
         val stamp = loginStampNow()
@@ -176,6 +179,19 @@ class MainShellActivity : AppCompatActivity() {
             2 -> nav.refresh()
             3 -> chat.refreshProvider()
             4 -> profile.refresh()
+        }
+    }
+
+    /** Android 13+ 第一次进应用要主动要通知权限，否则提醒发不出来。 */
+    private fun askNotifyPermission() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        val granted = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            try {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 71)
+            } catch (_: Exception) {
+            }
         }
     }
 

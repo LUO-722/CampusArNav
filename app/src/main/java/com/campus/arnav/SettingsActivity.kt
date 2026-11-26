@@ -17,6 +17,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.campus.arnav.core.Reminder
 import com.campus.arnav.data.AuthStore
 import com.campus.arnav.data.ChatMsg
 import com.campus.arnav.data.ChatStore
@@ -126,6 +127,34 @@ class SettingsActivity : AppCompatActivity() {
             12f, color(R.color.text_secondary)
         ).apply { setPadding(0, dp(6), 0, dp(6)) })
         box.addView(ocrCard, cardLp())
+
+        // ③ 提醒（课程 / 活动开始前 N 分钟发通知）
+        val remindCard = card(this, 14)
+        remindCard.addView(headerRow("提醒", "课程与活动开始前提醒你", null))
+        val remindBox = CheckBox(this).apply {
+            text = "开启提醒（当前提前 ${SettingsStore.remindBefore(this@SettingsActivity)} 分钟）"
+            isChecked = SettingsStore.remindEnabled(this@SettingsActivity)
+            setTextColor(color(R.color.text_primary))
+            textSize = 13f
+            buttonTintList = ColorStateList.valueOf(color(R.color.accent))
+            setOnCheckedChangeListener { _, v ->
+                SettingsStore.setRemindEnabled(this@SettingsActivity, v)
+                Reminder.scheduleAsync(this@SettingsActivity)
+                status.text = if (v) "已开启提醒：课程或活动开始前会发通知。" else "已关闭提醒。"
+            }
+        }
+        remindCard.addView(remindBox)
+        remindCard.addView(textView(this,
+            "到点会发一条系统通知，例如「10 分钟后上课：高等数学ⅠA · 致广楼-303 · 第 3-5 节」。\n" +
+                "当天已停课的课不会提醒；改了课表会自动重排。若系统里把通知权限关掉，就收不到。",
+            12f, color(R.color.text_secondary)
+        ).apply { setPadding(0, dp(4), 0, dp(6)) })
+        remindCard.addView(actionRow(
+            "提前 5 分钟" to { setRemind(this@SettingsActivity, 5) },
+            "10 分钟" to { setRemind(this@SettingsActivity, 10) },
+            "30 分钟" to { setRemind(this@SettingsActivity, 30) }
+        ))
+        box.addView(remindCard, cardLp())
 
         // ③ 学期设置
         val semCard = card(this, 14)
@@ -448,4 +477,13 @@ class SettingsActivity : AppCompatActivity() {
         transformationMethod = PasswordTransformationMethod.getInstance()
         typeface = Typeface.DEFAULT
     }
+
+    /** 改提前分钟数：立刻重排提醒，并给出反馈。 */
+    private fun setRemind(ctx: android.content.Context, minutes: Int) {
+        SettingsStore.setRemindBefore(ctx, minutes)
+        SettingsStore.setRemindEnabled(ctx, true)
+        Reminder.scheduleAsync(ctx)
+        android.widget.Toast.makeText(ctx, "已设为提前 $minutes 分钟提醒", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
 }

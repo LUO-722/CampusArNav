@@ -120,6 +120,23 @@ object SettingsStore {
     /** 聊天用的模型：内置云端通道。 */
     fun chatProvider(ctx: Context): Provider = builtin(ctx)
 
+    /** 课前 / 活动前提醒是否开启（默认开）。 */
+    fun remindEnabled(ctx: Context): Boolean =
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean("remind_on", true)
+
+    fun setRemindEnabled(ctx: Context, v: Boolean) {
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean("remind_on", v).apply()
+    }
+
+    /** 提前多少分钟提醒（默认 10 分钟，1—120 之间）。 */
+    fun remindBefore(ctx: Context): Int =
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getInt("remind_before", 10).coerceIn(1, 120)
+
+    fun setRemindBefore(ctx: Context, minutes: Int) {
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
+            .putInt("remind_before", minutes.coerceIn(1, 120)).apply()
+    }
+
     fun chatUseVision(ctx: Context): Boolean =
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean("chat_vision", false)
 

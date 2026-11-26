@@ -17,6 +17,7 @@ import com.campus.arnav.LoginActivity
 import com.campus.arnav.R
 import com.campus.arnav.data.Activity
 import com.campus.arnav.data.Course
+import com.campus.arnav.core.Reminder
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.ScheduleLogic
 import java.util.Calendar
@@ -314,6 +315,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
     }
 
     fun refresh() {
+        // 课表变化后顺手把提醒重排一遍（内部 20 秒节流，不会频繁排期）
         val courses = CourseStore.courses(ctx)
         val activities = CourseStore.activities(ctx)
 
@@ -338,6 +340,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
 
         fillWeekSections(activities)
         fillDay(courses, activities)
+        Reminder.scheduleAsync(ctx)
     }
 
     /** 周视图底部两栏：样式与日视图卡片一致。 */

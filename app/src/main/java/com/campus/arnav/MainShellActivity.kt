@@ -15,6 +15,7 @@ import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import com.campus.arnav.data.AuthStore
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.ui.insLightBars
@@ -47,6 +48,9 @@ class MainShellActivity : AppCompatActivity() {
 
     private var current = 0
 
+    /** 登录态快照 "loggedIn|lastSyncAt"：从登录页回来时只在这两者变了才刷新，避免打断滚动。 */
+    private var loginStamp: String? = null
+
     private val settingsLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             SettingsStore.applySemester(this)
@@ -71,6 +75,7 @@ class MainShellActivity : AppCompatActivity() {
         Log.i("MainShell", "onCreate saved=" + (savedInstanceState != null) + " tabArg=" + (savedInstanceState?.getInt("tab", -1) ?: -1))
         SettingsStore.applySemester(this)
         CourseStore.seedDemoIfEmpty(this)
+        loginStamp = loginStampNow()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -155,6 +160,28 @@ class MainShellActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt("tab", current)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!this::content.isInitialized) return
+        // 从登录页（或设置页）回来：登录态 / 最近同步时间变了才刷新当前栏，
+        // 登录成功后课表已被教务数据替换，需要重新读；没变化就不重建视图，保住滚动位置。
+        val stamp = loginStampNow()
+        val before = loginStamp
+        loginStamp = stamp
+        if (before == null || before == stamp) return
+        when (current) {
+            0 -> timetable.refresh()
+            2 -> nav.refresh()
+            3 -> chat.refreshProvider()
+            4 -> profile.refresh()
+        }
+    }
+
+    private fun loginStampNow(): String {
+        val s = AuthStore.session(this)
+        return s.loggedIn.toString() + "|" + s.lastSyncAt
     }
 
     private fun switchTab(i: Int) {

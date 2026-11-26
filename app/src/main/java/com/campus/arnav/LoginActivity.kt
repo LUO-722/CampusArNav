@@ -368,30 +368,38 @@ class LoginActivity : AppCompatActivity() {
                 captchaRow?.visibility = View.GONE
             }
             val sync = JwxtClient.sync(this, base) { msg -> ui { status.text = msg } }
-            val imported = try {
-                importCourses(sync.courses)
-            } catch (e: Exception) {
-                0
+            // 课表必须「同步成功 + 非空」才替换本机数据：校园网断、教务维护、外网时段外都可能
+            // 返回 ok=false 或解析出 0 门课，这时落库会删掉学生原有课表（与「我的」页行为保持一致）。
+            val syncOk = sync.ok
+            val coursesOk = syncOk && sync.courses.isNotEmpty()
+            if (coursesOk) {
+                try {
+                    importCourses(sync.courses)
+                } catch (e: Exception) {
+                    // 落库失败不影响进入应用
+                }
             }
-            // 考试、成绩也一起搬进来；学生信息补进「我的」
+            // 考试、成绩也搬进来，但同样**只在解析到数据时才替换**：
+            // 教务端解析偶尔会返回 0 条，若无脑覆盖会把上一次拉到的好数据清空（与课表同一条教训）。
             try {
-                if (sync.exams.isNotEmpty()) CourseStore.replaceExams(this, sync.exams)
-                if (sync.grades.isNotEmpty()) CourseStore.replaceGrades(this, sync.grades)
+                if (syncOk && sync.exams.isNotEmpty()) CourseStore.replaceExams(this, sync.exams)
+                if (syncOk && sync.grades.isNotEmpty()) CourseStore.replaceGrades(this, sync.grades)
             } catch (e: Exception) {
                 // 落库失败不影响进入应用
             }
             // 学籍信息（姓名/学号/院系/专业/班级）并进「我的」；学号没解析出来就用登录账号兜底
-            runCatching {
+            if (syncOk) runCatching {
                 var jw = sync.profile
                 if (jw.sid.isBlank()) jw = jw.copy(sid = acc)
                 com.campus.arnav.data.ProfileStore.mergeJwxt(this, jw)
             }
-            AuthStore.setLastSync(this, System.currentTimeMillis())
+            // 只有真正同步成功才盖「最近同步」时间戳，避免失败后「我的」页显示刚同步过
+            if (syncOk) AuthStore.setLastSync(this, System.currentTimeMillis())
             ui {
                 busy = false
                 loginBtn.isEnabled = true
                 loginBtn.text = "登录并同步"
-                showSyncResult(sync)
+                if (coursesOk) showSyncResult(sync) else showSyncIncomplete(sync)
             }
         }.start()
     }
@@ -426,6 +434,23 @@ class LoginActivity : AppCompatActivity() {
             }
         }
         builder.show()
+    }
+
+    /**
+     * 同步失败或没拿到课程：本机课表原样保留，说明原因后直接进应用，不把人卡在登录页。
+     * N 取本机现有课程条数，让用户确认「课表还在」。
+     */
+    private fun showSyncIncomplete(sync: JwxtClient.SyncResult) {
+        val local = CourseStore.courses(this).size
+        val reason = sync.message.ifBlank { "网络或教务端未返回数据" }
+        AlertDialog.Builder(this)
+            .setTitle("同步未完成")
+            .setMessage(
+                "$reason\n\n已保留本机原有课表（$local 条）。\n" +
+                    "可稍后在「我的」页重新同步；连校园网或在外网开放时段（09:00—18:00）成功率更高。"
+            )
+            .setPositiveButton("知道了") { _, _ -> enterApp() }
+            .show()
     }
 
     private fun enterApp() {

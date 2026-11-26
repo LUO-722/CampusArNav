@@ -16,10 +16,14 @@ import com.campus.arnav.agent.AgentEngine
 import com.campus.arnav.data.ChatMsg
 import com.campus.arnav.data.ChatStore
 import com.campus.arnav.data.SettingsStore
+import com.campus.arnav.kb.KbIndex
 import com.campus.arnav.ocr.LocalOcr
 
 /**
  * ④ 聊天：知识库问答 + Agent 决策（录活动/加课/闹钟/导航建议）；图片先本机 OCR 识文字再提问。
+ *
+ * 配了 AI 通道（自己的 Key 或自建代理）走 [AgentEngine]；没配也不报错，
+ * 直接用本机 BM25 知识库回答，功能不会「死」。
  */
 class ChatTab(
     private val ctx: Context,
@@ -54,7 +58,7 @@ class ChatTab(
         modelLabel.setOnClickListener {
             choose(ctx, "聊天模型", listOf(
                 "DeepSeek 文本（快、便宜）",
-                "打开设置填 Key"
+                "打开设置（填 Key 或自建代理）"
             )) { which ->
                 when (which) {
                     0 -> { SettingsStore.setChatUseVision(ctx, false); refreshProvider() }
@@ -117,10 +121,10 @@ class ChatTab(
 
     fun refreshProvider() {
         val p = SettingsStore.chatProvider(ctx)
-        modelLabel.text = if (p.ready()) {
-            "模型：${p.model}（文本）"
-        } else {
-            "未配置 API Key，点左上角 ☰ 设置"
+        modelLabel.text = when {
+            p.ready() && p.viaProxy() -> "模型：${p.model} · 走自建代理（App 内无需 Key）"
+            p.ready() -> "模型：${p.model}（文本）"
+            else -> "离线知识库模式（未配置 AI，点 ☰ 可接入；不配置也能问答）"
         }
     }
 
@@ -166,12 +170,49 @@ class ChatTab(
         val context = ctx
         Thread {
             try {
-                val r = AgentEngine.ask(context, history, text)
-                post { complete(r) }
+                if (SettingsStore.chatOnline(context)) {
+                    val r = AgentEngine.ask(context, history, text)
+                    post { complete(r) }
+                } else {
+                    // 没 Key / 没代理：不报错，直接用本机知识库答（BM25，不联网）
+                    val reply = answerOffline(context, text)
+                    post { completeOffline(reply) }
+                }
             } catch (e: Exception) {
                 post { fail("出错了：${e.message}") }
             }
         }.start()
+    }
+
+    /**
+     * 离线兜底：本机 BM25 知识库检索后直接给条文（不联网、不需要 Key）。
+     * 注意离线模式只答知识性问题，写入类操作（加课/录活动）需要配 AI。
+     */
+    private fun answerOffline(context: Context, query: String): String {
+        val hits = try {
+            KbIndex.search(context, query, 3)
+        } catch (e: Exception) {
+            emptyList()
+        }
+        if (hits.isEmpty()) {
+            return "本机知识库里暂时没找到和「$query」相关的内容。换个说法（例如「图书馆 开放时间」）再试，" +
+                "或点左上角 ☰ 到「设置 → AI 服务」接入 AI 后追问。\n\n（离线知识库回答；配置 AI 后可对话式追问）"
+        }
+        val sb = StringBuilder("根据学校知识库：")
+        hits.forEachIndexed { i, h ->
+            sb.append("\n${i + 1}. ").append(h.title)
+            sb.append("\n").append(h.text.trim().take(260).replace("\n", " "))
+        }
+        sb.append("\n\n（离线知识库回答；配置 AI 后可对话式追问）")
+        return sb.toString()
+    }
+
+    private fun completeOffline(reply: String) {
+        addBubble(reply, true)
+        history.add(ChatMsg("assistant", reply))
+        ChatStore.append(ctx, "assistant", reply)
+        while (history.size > 30) history.removeAt(0)
+        sending = false
     }
 
     private fun complete(r: AgentEngine.Result) {

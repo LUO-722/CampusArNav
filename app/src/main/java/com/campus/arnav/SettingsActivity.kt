@@ -22,6 +22,7 @@ import com.campus.arnav.data.ChatMsg
 import com.campus.arnav.data.ChatStore
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.ProfileStore
+import com.campus.arnav.data.Provider
 import com.campus.arnav.data.ScheduleLogic
 import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.kb.KbIndex
@@ -44,15 +45,16 @@ import com.campus.arnav.ui.textView
  *
  * 结构：
  *   ① DeepSeek（文本）—— 状态徽标 + Key + 测试 + 折叠的高级项（地址/模型）
- *   ② 图片识别 —— 本机 ML Kit OCR，离线、不上传图片、不需要 Key
- *   ③ 学期设置 —— 开始日/周数/名称 + 恢复默认
- *   ④ 数据与诊断 —— 自检 / 知识库 / 清空对话
+ *   ② AI 服务（可选）—— 自建服务端代理地址 + 访问令牌，填了 App 内就无需 API Key
+ *   ③ 教务系统 / 图片识别 / 学期设置 / 数据与诊断
  * 底部固定的「保存设置」一次提交全部改动。
+ * 没有 Key 也没有代理时，App 自动降级为本机规则识别活动 + 离线知识库问答。
  */
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var status: TextView
     private lateinit var dsBadge: TextView
+    private lateinit var aiBadge: TextView
     private lateinit var dsKey: EditText
     private var authBadge: TextView? = null
 
@@ -75,7 +77,10 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         box.addView(textView(this, "设置", 26f, color(R.color.text_primary), bold = true))
-        box.addView(textView(this, "Key 只存本机，不上传；模型地址可折叠在「高级」里。", 12f, color(R.color.text_secondary)))
+        box.addView(textView(this,
+            "Key 与代理令牌只存本机，不上传；没有 Key 也能用：自动降级为本机规则识别 + 离线知识库。",
+            12f, color(R.color.text_secondary)
+        ))
 
         val ds = SettingsStore.deepseek(this)
 
@@ -99,7 +104,29 @@ class SettingsActivity : AppCompatActivity() {
         ))
         box.addView(dsCard, cardLp())
 
-        // ② 教务系统（登录态 / 同步）
+        // ② AI 服务（可选）：自建服务端代理。填了以后 App 内不再需要 DeepSeek Key。
+        aiBadge = badge(false)
+        val aiCard = card(this, 14)
+        aiCard.addView(headerRow("AI 服务（可选）", "自建代理 · App 内无需 API Key", aiBadge))
+        aiCard.addView(textView(this,
+            "自建服务端代理后填这里，App 内不再需要 API Key；留空则用本机规则识别 + 离线知识库，功能照常可用。\n" +
+                "请求会发到「代理地址 /chat/completions」，与 DeepSeek 接口同构，把 Key 放在服务端即可，学生不用自己申请。",
+            12f, color(R.color.text_secondary)
+        ).apply { setPadding(0, dp(6), 0, dp(2)) })
+        val aiBase = field(aiCard, "代理地址（OpenAI 兼容，可留空）", SettingsStore.aiProxyBase(this))
+        val aiToken = field(aiCard, "访问令牌（可留空）", SettingsStore.aiProxyToken(this)).apply { maskKey() }
+        eyeToggle(aiCard, aiToken)
+        aiCard.addView(actionRow(
+            "测试代理" to { testProxy(aiBase, aiToken) },
+            "清空代理" to {
+                aiBase.setText("")
+                aiToken.setText("")
+                status.text = "已清空代理输入，记得点底部「保存设置」；保存后回到本机规则 + 离线知识库。"
+            }
+        ))
+        box.addView(aiCard, cardLp())
+
+        // ③ 教务系统（登录态 / 同步）
         val authCard = card(this, 14)
         val auth = AuthStore.session(this)
         authBadge = badge(auth.loggedIn)
@@ -185,13 +212,14 @@ class SettingsActivity : AppCompatActivity() {
         val save = button(this, "保存设置", color(R.color.accent), Color.parseColor("#FFFFFF")).apply {
             textSize = 16f
             setOnClickListener {
-                saveAll(dsBase, dsKey, dsModel, semStart, semWeeks, semName)
+                saveAll(dsBase, dsKey, dsModel, aiBase, aiToken, semStart, semWeeks, semName)
             }
         }
         box.addView(save, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(6) })
 
         box.addView(textView(this,
-            "· DeepSeek 默认 https://api.deepseek.com，模型 deepseek-chat。\n" +
+            "· 什么都不填也能用：智嘉走本机规则识别活动，对话走离线知识库，绝不因为没 Key 而不可用。\n" +
+                "· 有自建代理时请求发到「代理地址 /chat/completions」（OpenAI 兼容），App 内不需要 API Key。\n" +
                 "· 图片文字识别走手机本机 ML Kit 中文 OCR，离线、免费、不传图片、不用 Key。\n" +
                 "· 高德路线走 uri.amap.com，不需要 Key。",
             11f, color(R.color.text_secondary)
@@ -266,14 +294,16 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun saveAll(
         dsBase: EditText, dsKey: EditText, dsModel: EditText,
+        aiBase: EditText, aiToken: EditText,
         semStart: EditText, semWeeks: EditText, semName: EditText
     ) {
         SettingsStore.saveDeepSeek(this, dsBase.text.toString(), dsKey.text.toString(), dsModel.text.toString())
+        SettingsStore.saveAiProxy(this, aiBase.text.toString(), aiToken.text.toString())
 
         val startText = semStart.text.toString().trim()
         val weeksInt = semWeeks.text.toString().trim().toIntOrNull()
         if (ScheduleLogic.parseDate(startText) == null) {
-            status.text = "已保存 Key；学期设置未保存：开始日应为 yyyy-MM-dd。"
+            status.text = "已保存 AI 与代理设置；学期设置未保存：开始日应为 yyyy-MM-dd。"
         } else {
             SettingsStore.saveSemester(
                 this, startText,
@@ -288,8 +318,9 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun refreshBadges() {
-        val dsReady = SettingsStore.deepseek(this).ready()
-        paintBadge(dsBadge, dsReady)
+        // 徽标分开看：DeepSeek 徽标只反映「自己的 Key」，代理单独一个徽标
+        paintBadge(dsBadge, SettingsStore.deepseek(this).copy(proxyBase = "", proxyToken = "").ready())
+        paintBadge(aiBadge, SettingsStore.aiProxyConfigured(this), "代理已配置", "代理未配置")
     }
 
     // ---------------- 诊断动作 ----------------
@@ -353,9 +384,12 @@ class SettingsActivity : AppCompatActivity() {
         } else {
             SettingsStore.saveDeepSeek(this, base.text.toString(), key.text.toString(), model.text.toString())
         }
-        val p = if (vision) SettingsStore.vision(this) else SettingsStore.deepseek(this)
+        // 直连测试：显式去掉代理，确保测的是「自己的 Key」这条通道
+        val p = (if (vision) SettingsStore.vision(this) else SettingsStore.deepseek(this))
+            .copy(proxyBase = "", proxyToken = "")
         if (!p.ready()) {
-            status.text = "还没填 Key，先填好再测试。"
+            status.text = "还没填 Key：可填自己的 Key 测直连，或到「AI 服务」填自建代理后点「测试代理」；" +
+                "两者都不填也能用（本机规则识别 + 离线知识库）。"
             return
         }
         Thread {
@@ -367,6 +401,41 @@ class SettingsActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 runOnUiThread { status.text = "连接失败：${e.message}" }
+            }
+        }.start()
+    }
+
+    /**
+     * 测试自建代理：成功才落库（避免把打错的地址存进去后所有 AI 请求都失败）。
+     * 请求形态与正式调用一致：POST {代理地址}/chat/completions。
+     */
+    private fun testProxy(base: EditText, token: EditText) {
+        var b = base.text.toString().trim()
+        if (b.isBlank()) {
+            status.text = "还没填代理地址。留空就是本机规则 + 离线知识库模式，一样能用。"
+            return
+        }
+        // 用户常只填域名：测试时先补 https://（保存时 SettingsStore.saveAiProxy 也会归一）
+        if (!b.startsWith("http://", true) && !b.startsWith("https://", true)) b = "https://$b"
+        status.text = "测试代理中…"
+        val model = SettingsStore.deepseek(this).model.ifBlank { "deepseek-chat" }
+        val tok = token.text.toString().trim()
+        val p = Provider(base = "", key = "", model = model, proxyBase = b, proxyToken = tok)
+        val addr = b
+        Thread {
+            try {
+                val r = LlmClient.chat(p, listOf(ChatMsg("user", "只回复两个字：正常")))
+                runOnUiThread {
+                    SettingsStore.saveAiProxy(this, addr, tok)
+                    base.setText(addr)
+                    status.text = "代理连接成功：${r.take(60)}"
+                    refreshBadges()
+                    setResult(RESULT_OK)
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    status.text = "代理连接失败：${e.message}（地址需以 http:// 或 https:// 开头，且服务端兼容 /chat/completions）"
+                }
             }
         }.start()
     }
@@ -396,8 +465,11 @@ class SettingsActivity : AppCompatActivity() {
         paintBadge(this, ready)
     }
 
-    private fun paintBadge(v: TextView, ready: Boolean) {
-        v.text = if (ready) "已配置" else "未配置"
+    private fun paintBadge(
+        v: TextView, ready: Boolean,
+        readyText: String = "已配置", offText: String = "未配置"
+    ) {
+        v.text = if (ready) readyText else offText
         v.setTextColor(if (ready) Color.parseColor("#E8447A") else Color.parseColor("#2E7FA8"))
         v.background = GradientDrawable().apply {
             cornerRadius = dp(9).toFloat()

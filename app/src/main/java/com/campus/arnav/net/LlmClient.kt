@@ -12,15 +12,26 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 
 /**
- * OpenAI 兼容的 Chat Completions 客户端（DeepSeek / 通义千问 VL 等）。
+ * OpenAI 兼容的 Chat Completions 客户端（DeepSeek / 通义千问 VL / 自建代理）。
  * 只用 HttpURLConnection，不引入第三方网络库。
+ *
+ * 通道选择由 [Provider] 决定：`proxyBase` 非空时请求发到代理
+ * （`{proxyBase}/chat/completions`，App 内不需要 DeepSeek Key），否则按原直连逻辑走。
  */
 object LlmClient {
+
+    private const val NO_CHANNEL =
+        "还没有可用的 AI 通道：可在「设置 → AI 服务」填自建代理，或填自己的 DeepSeek Key；" +
+            "两者都不填也能用（智嘉走本机规则识别 + 离线知识库）。"
+
+    private const val VISION_NO_CHANNEL =
+        "识图通道未配置：可在「设置 → AI 服务」填自建代理，或填通义 VL 的 Key；" +
+            "只看图片文字的话，选图后本机 OCR 也能用（离线、不需要 Key）。"
 
     class LlmException(message: String) : Exception(message)
 
     fun chat(provider: Provider, messages: List<ChatMsg>, jsonMode: Boolean = false): String {
-        if (!provider.ready()) throw LlmException("尚未配置 API Key，请到「设置」里填写。")
+        if (!provider.ready()) throw LlmException(NO_CHANNEL)
         val body = JSONObject().apply {
             put("model", provider.model)
             put("temperature", 0.3)
@@ -38,7 +49,7 @@ object LlmClient {
 
     /** 图片理解：传入 base64（不含 data: 前缀）与 mime。 */
     fun vision(provider: Provider, prompt: String, imageBase64: String, mime: String = "image/jpeg"): String {
-        if (!provider.ready()) throw LlmException("尚未配置识图模型 Key，请到「设置」里填写通义 VL。")
+        if (!provider.ready()) throw LlmException(VISION_NO_CHANNEL)
         val content = JSONArray().apply {
             put(JSONObject().put("type", "text").put("text", prompt))
             put(
@@ -70,7 +81,7 @@ object LlmClient {
         imageBase64: String,
         mime: String = "image/jpeg"
     ): String {
-        if (!provider.ready()) throw LlmException("识图需要先在「设置」里填写通义 VL 的 API Key。")
+        if (!provider.ready()) throw LlmException(VISION_NO_CHANNEL)
         val arr = JSONArray()
         arr.put(JSONObject().put("role", "system").put("content", system))
         val recent = history.takeLast(8).filter { it.role != "system" }
@@ -108,14 +119,21 @@ object LlmClient {
     }
 
     private fun post(provider: Provider, body: String): String {
-        val base = provider.base.trimEnd('/')
+        val base = endpointBase(provider.effectiveBase())
         if (!base.startsWith("http://", true) && !base.startsWith("https://", true)) {
-            throw LlmException("接口地址应以 http:// 或 https:// 开头，例如 https://api.deepseek.com")
+            throw LlmException(
+                if (provider.viaProxy()) {
+                    "代理地址应以 http:// 或 https:// 开头，例如 https://api.example.edu/ai"
+                } else {
+                    "接口地址应以 http:// 或 https:// 开头，例如 https://api.deepseek.com"
+                }
+            )
         }
+        val url = "$base/chat/completions"
         val conn = try {
-            URL("$base/chat/completions").openConnection() as HttpURLConnection
+            URL(url).openConnection() as HttpURLConnection
         } catch (e: Exception) {
-            throw LlmException("接口地址格式不对：${provider.base}")
+            throw LlmException("接口地址格式不对：${provider.effectiveBase()}")
         }
         try {
             conn.requestMethod = "POST"
@@ -123,7 +141,9 @@ object LlmClient {
             conn.connectTimeout = 20_000
             conn.readTimeout = 120_000
             conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            conn.setRequestProperty("Authorization", "Bearer ${provider.key}")
+            // 代理可以不要令牌（例如只校验 App 内置 token 的服务端），空令牌就不发 Authorization
+            val token = provider.effectiveKey().trim()
+            if (token.isNotEmpty()) conn.setRequestProperty("Authorization", "Bearer $token")
             conn.setRequestProperty("Accept", "application/json")
             OutputStreamWriter(conn.outputStream, StandardCharsets.UTF_8).use { it.write(body) }
             val code = conn.responseCode
@@ -138,7 +158,7 @@ object LlmClient {
         } catch (e: java.net.SocketTimeoutException) {
             throw LlmException("请求超时：网络慢或模型响应太久，请稍后重试。")
         } catch (e: java.net.UnknownHostException) {
-            throw LlmException("连不上服务器：请检查网络或接口地址（${provider.base}）。")
+            throw LlmException("连不上服务器：请检查网络或接口地址（${provider.effectiveBase()}）。")
         } catch (e: javax.net.ssl.SSLException) {
             throw LlmException("HTTPS 连接失败：请检查接口地址与网络环境。")
         } catch (e: java.io.IOException) {
@@ -152,9 +172,19 @@ object LlmClient {
         }
     }
 
+    /**
+     * 归一化接口根地址：去首尾空白与末尾斜杠，避免拼出 `//chat/completions`；
+     * 用户把 `/chat/completions` 一起粘进来时也不重复拼接。
+     */
+    internal fun endpointBase(raw: String): String {
+        var b = raw.trim().trimEnd('/')
+        while (b.endsWith("/chat/completions")) b = b.removeSuffix("/chat/completions").trimEnd('/')
+        return b
+    }
+
     private fun friendlyError(code: Int, body: String): String {
         val hint = when (code) {
-            401, 403 -> "API Key 无效或没有权限"
+            401, 403 -> "Key 或代理令牌无效 / 没有权限"
             404 -> "接口地址不对（应填到 /v1 这一级）"
             429 -> "请求太频繁或额度用完"
             in 500..599 -> "模型服务暂时不可用"

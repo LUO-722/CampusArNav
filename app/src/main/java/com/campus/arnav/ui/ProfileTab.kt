@@ -1,5 +1,6 @@
 package com.campus.arnav.ui
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -10,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.campus.arnav.LoginActivity
 import com.campus.arnav.R
 import com.campus.arnav.data.AuthStore
 import com.campus.arnav.data.CourseStore
@@ -162,11 +164,20 @@ class ProfileTab(
 
     // ⑤ 教务数据
     private fun jwCard(st: ProfileStore.Stats) {
+        val session = AuthStore.session(ctx)
+
+        // 登录是「可选项」：先说明不登录也能用课程表，避免这里又变成一道登录墙
+        if (!session.loggedIn) {
+            addView(textView(ctx, "不登录也能用课程表：先看示例，随时可换成自己的课表",
+                11f, ctx.color(R.color.text_secondary)).apply {
+                setPadding(ctx.dp(2), ctx.dp(12), ctx.dp(2), 0)
+            })
+        }
+
         val card = card(ctx, 14)
         card.addView(titleRow("教务数据", ""))
-        val session = AuthStore.session(ctx)
         val line = if (!session.loggedIn) {
-            "还没登录教务系统"
+            "还没登录教务系统 · 登录是可选的"
         } else {
             session.modeLabel() + " · " + AuthStore.lastSyncText(ctx)
         }
@@ -220,7 +231,10 @@ class ProfileTab(
         }
 
         card.addView(actionRow(
-            "同步教务" to { syncJwxt() },
+            // 未登录时这里就是登录入口：不逼着人先登录，想登录随时点
+            (if (session.loggedIn) "同步教务" else "登录教务（可选）") to {
+                if (session.loggedIn) syncJwxt() else openLogin()
+            },
             "全部考试" to { showExams(CourseStore.exams(ctx)) }
         ))
         card.addView(actionRow(
@@ -354,11 +368,23 @@ class ProfileTab(
         }
     }
 
+    /** 登录教务是可选项：从「我的」页进入登录页，登录成功回主壳后会自动刷新课程表。 */
+    private fun openLogin() {
+        val c = ctx
+        try {
+            val i = Intent(c, LoginActivity::class.java)
+            if (c !is Activity) i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            c.startActivity(i)
+        } catch (e: Exception) {
+            ctx.toast("打不开登录页：${e.message}")
+        }
+    }
+
     /** 重新从教务系统搬一次数据（课表 / 学籍 / 考试 / 成绩）。 */
     private fun syncJwxt() {
         val a = AuthStore.session(ctx)
         if (!a.ready() || !a.loggedIn) {
-            ctx.toast("还没登录教务系统，先在「设置与 Key」里登录。")
+            ctx.toast("还没登录教务系统，先点上面的「登录教务（可选）」。")
             return
         }
         if (a.mode == AuthStore.MODE_WAN && AuthStore.wanBlocked()) {

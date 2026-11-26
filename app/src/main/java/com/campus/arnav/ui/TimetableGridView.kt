@@ -100,6 +100,16 @@ class TimetableGridView @JvmOverloads constructor(
     }
     private val blockRect = RectF()
 
+    /** 「示例」角标：只有 demo 课程块右上角画一个很小的圆角标签，纯绘制，不参与点击命中。 */
+    private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFE3EE.toInt() }
+    private val badgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFE8447A.toInt()
+        textSize = 7.5f * density
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+    }
+    private val badgeRect = RectF()
+
     private var lastTap = 0L
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -166,6 +176,23 @@ class TimetableGridView @JvmOverloads constructor(
                     x + w / 2,
                     y + h - 7 * density,
                     courseLocPaint
+                )
+            }
+
+            // 示例课角标：右上角一个小圆角标签「示例」，让演示数据一眼可辨
+            if (c.source == "demo") {
+                val label = "示例"
+                val bw = badgeTextPaint.measureText(label) + 6 * density
+                val bh = 10 * density
+                val right = blockRect.right - 2 * density
+                val top = blockRect.top + 2 * density
+                badgeRect.set(right - bw, top, right, top + bh)
+                canvas.drawRoundRect(badgeRect, bh / 2, bh / 2, badgeBgPaint)
+                canvas.drawText(
+                    label,
+                    (badgeRect.left + badgeRect.right) / 2,
+                    top + bh * 0.75f,
+                    badgeTextPaint
                 )
             }
         }

@@ -11,14 +11,19 @@ import android.widget.ScrollView
 import androidx.appcompat.app.AlertDialog
 import com.campus.arnav.R
 import com.campus.arnav.agent.NoticeExtractor
+import com.campus.arnav.agent.OfflineExtractor
 import com.campus.arnav.data.ActivityDraft
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.ScheduleLogic
+import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.net.WebPage
 import com.campus.arnav.ocr.LocalOcr
 
 /**
  * ② 智嘉：粘贴文字 / 选图片 / 贴链接 → 抽活动 → 检查冲突 → 录进课表。
+ *
+ * 联网抽取（DeepSeek 直连或自建代理）优先；没配任何 AI 通道时自动降级为
+ * [OfflineExtractor] 本机规则解析，功能不会「死」。
  */
 class ZhijiaTab(
     private val ctx: Context,
@@ -180,10 +185,15 @@ class ZhijiaTab(
                 ctx.toast("正在本机识字，请稍等…")
                 return
             }
+            val online = SettingsStore.extractOnline(ctx)
             extracting = true
             extractBtn.isEnabled = false
             extractBtn.text = "提取中…"
-            status.text = "正在本机识字，再用 DeepSeek 提取活动（图片不上传）…"
+            status.text = if (online) {
+                "正在本机识字，再用 AI 提取活动（图片不上传）…"
+            } else {
+                "正在本机识字，再用本机规则提取活动（图片不上传、不需要 Key）…"
+            }
             status.setTextColor(ctx.color(R.color.text_secondary))
             Thread {
                 try {
@@ -192,8 +202,8 @@ class ZhijiaTab(
                         post { doneExtract(); status.text = "本机识字结果为空，无法提取活动。" }
                         return@Thread
                     }
-                    val out = NoticeExtractor.extractText(ctx, text)
-                    post { doneExtract(); showDrafts(out) }
+                    val out = if (online) NoticeExtractor.extractText(ctx, text) else OfflineExtractor.extract(text)
+                    post { doneExtract(); showDrafts(out, offline = !online) }
                 } catch (e: Exception) {
                     post { doneExtract(); status.text = "提取失败：${e.message}" }
                 }
@@ -204,6 +214,7 @@ class ZhijiaTab(
                 ctx.toast(if (mode == 2) "先粘贴网址" else "先粘贴通知原文")
                 return
             }
+            val online = SettingsStore.extractOnline(ctx)
             extracting = true
             extractBtn.isEnabled = false
             extractBtn.text = "提取中…"
@@ -211,14 +222,15 @@ class ZhijiaTab(
                 mode == 2 && text.contains("mp.weixin.qq.com") ->
                     "公众号文章常被反爬拦截，正在尝试抓取；失败请改用截图或粘贴正文"
                 mode == 2 -> "正在抓网页正文…"
-                else -> "正在让 DeepSeek 提取活动…"
+                online -> "正在让 AI 提取活动…"
+                else -> "正在用本机规则提取活动（不需要 Key）…"
             }
             status.setTextColor(ctx.color(R.color.text_secondary))
             Thread {
                 try {
                     val body = if (mode == 2) WebPage.fetch(text) else text
-                    val out = NoticeExtractor.extractText(ctx, body)
-                    post { doneExtract(); showDrafts(out) }
+                    val out = if (online) NoticeExtractor.extractText(ctx, body) else OfflineExtractor.extract(body)
+                    post { doneExtract(); showDrafts(out, offline = !online) }
                 } catch (e: Exception) {
                     post {
                         doneExtract()
@@ -239,12 +251,17 @@ class ZhijiaTab(
         extractBtn.text = "让智嘉提取活动"
     }
 
-    private fun showDrafts(list: List<ActivityDraft>) {
+    private fun showDrafts(list: List<ActivityDraft>, offline: Boolean = false) {
         drafts.clear()
         drafts.addAll(list)
         checked.clear()
         repeat(list.size) { checked.add(true) }
-        status.text = if (list.isEmpty()) "没有识别到需要参加的活动，换一段原文试试。" else "识别到 ${list.size} 项活动，核对后录入。"
+        status.text = when {
+            list.isEmpty() && offline -> "本机没认出时间地点，可手动在课程表里＋活动。"
+            list.isEmpty() -> "没有识别到需要参加的活动，换一段原文试试。"
+            offline -> "本机规则识别成功 ${list.size} 项（未配置 Key，文字/图片都在本机处理），核对后录入。"
+            else -> "识别到 ${list.size} 项活动，核对后录入。"
+        }
         status.setTextColor(if (list.isEmpty()) Color.parseColor("#E8447A") else ctx.color(R.color.text_secondary))
         renderDrafts()
     }
@@ -267,7 +284,12 @@ class ZhijiaTab(
                 head.addView(cb, LinearLayout.LayoutParams(ctx.dp(40), ctx.dp(40)))
                 head.addView(textView(ctx, d.title, 15f, ctx.color(R.color.text_primary), bold = true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 addView(head)
-                addView(textView(ctx, "${d.date}  ${d.startTime}-${d.endTime}", 13f, ctx.color(R.color.accent)))
+                val whenText = if (d.startTime.isBlank()) {
+                    if (d.date.isBlank()) "时间待定" else "${d.date}  时间待定"
+                } else {
+                    "${d.date}  ${d.startTime}-${d.endTime}"
+                }
+                addView(textView(ctx, whenText, 13f, ctx.color(R.color.accent)))
                 val place = listOf(d.location, d.organizer).filter { it.isNotBlank() }.joinToString(" · ")
                 if (place.isNotBlank()) addView(textView(ctx, place, 12f, ctx.color(R.color.text_secondary)))
                 if (d.note.isNotBlank()) addView(textView(ctx, d.note, 12f, ctx.color(R.color.text_secondary)))

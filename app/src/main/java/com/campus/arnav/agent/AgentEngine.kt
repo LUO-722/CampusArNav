@@ -61,8 +61,8 @@ object AgentEngine {
         val provider = SettingsStore.chatProvider(ctx)
         if (!provider.ready()) {
             return Result(
-                "我还没有接入模型：请点左上角「☰」打开设置，填写 DeepSeek 的 API Key（必填）；" +
-                    "要识别图片通知，再填通义 VL 的 Key。填好后就能问答、录课、设闹钟了。",
+                "现在是离线模式：不填 Key 也能查知识库、看课程表；想要对话式问答与拍照识通知，" +
+                    "可在「☰ → 设置」里填 DeepSeek（文本）或自建代理地址，都是可选的。",
                 emptyList(), emptyList()
             )
         }

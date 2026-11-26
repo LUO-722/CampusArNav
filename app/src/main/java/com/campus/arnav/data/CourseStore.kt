@@ -397,20 +397,95 @@ object CourseStore {
         return n
     }
 
-    /** 用教务系统解析结果替换「上次导入」的课程，返回这次新导入的门数。 */
+    /** 停课标记的身份键：课程标题 + 周几 + 起始节（重新同步后课程 _id 会变，靠它把标记挂回去）。 */
+    private fun skipKey(name: String, weekday: Int, startPeriod: Int) = "$name|$weekday|$startPeriod"
+
+    /**
+     * 用教务系统解析结果替换「上次导入」的课程，返回这次新导入的门数。
+     *
+     * 三条安全约束：
+     * 1) list 为空时直接返回 0，一门课都不删：校园网断、教务维护、外网时段外都可能返回空课表，
+     *    照旧「先删后插」会把学生本机课表清成空。这个短路放在库里，防御所有调用方。
+     * 2) 删 jwxt 课程会连带删 course_skips，所以删之前先按身份键记下被跳过的日期，插完再挂到新课程 id 上。
+     * 3) 整个「删 + 插 + 恢复标记」在一个事务里，中途异常回滚成原课表，不留半空状态。
+     */
     fun replaceJwxtCourses(ctx: Context, list: List<Course>): Int {
-        courses(ctx).filter { it.source == "jwxt" }.forEach { deleteCourse(ctx, it.id) }
-        val existing = courses(ctx)
+        if (list.isEmpty()) return 0
+        val d = db(ctx)
         var n = 0
-        for (c in list) {
-            val dup = existing.any {
-                it.name == c.name && it.weekday == c.weekday &&
-                    it.startPeriod == c.startPeriod && it.endPeriod == c.endPeriod &&
-                    it.weeks == c.weeks && it.location == c.location
+        d.beginTransaction()
+        try {
+            // ① 记下现有 jwxt 课程：要删的 id，以及「身份键 → 被跳过的日期集合」
+            val oldIds = ArrayList<Long>()
+            val oldSkips = HashMap<String, MutableSet<String>>()
+            d.query(
+                "courses",
+                arrayOf("_id", "name", "weekday", "start_period"),
+                "source=?",
+                arrayOf("jwxt"),
+                null, null, null
+            ).use { c ->
+                while (c.moveToNext()) {
+                    val id = c.getLong(0)
+                    oldIds.add(id)
+                    val key = skipKey(c.getString(1) ?: "", c.getInt(2), c.getInt(3))
+                    d.query(
+                        "course_skips", arrayOf("date"), "course_id=?", arrayOf(id.toString()),
+                        null, null, null
+                    ).use { s ->
+                        while (s.moveToNext()) {
+                            val date = s.getString(0)
+                            if (!date.isNullOrEmpty()) oldSkips.getOrPut(key) { HashSet() }.add(date)
+                        }
+                    }
+                }
             }
-            if (dup) continue
-            addCourseFull(ctx, c.copy(source = "jwxt"), colorAt(n))
-            n++
+
+            // ② 删旧课与其停课记录（不走 deleteCourse：标记由本方法负责恢复）
+            d.delete("courses", "source=?", arrayOf("jwxt"))
+            if (oldIds.isNotEmpty()) {
+                val marks = oldIds.joinToString(",") { "?" }
+                d.delete("course_skips", "course_id IN ($marks)", oldIds.map { it.toString() }.toTypedArray())
+            }
+
+            // ③ 插入新课程，同时按身份键收集新课程 id（同一身份键可能对应多行，全部记下）
+            val existing = courses(ctx)
+            val inserted = HashSet<String>()
+            val newIds = HashMap<String, MutableList<Long>>()
+            for (c in list) {
+                val full = "${c.name}|${c.weekday}|${c.startPeriod}|${c.endPeriod}|${c.weeks}|${c.location}"
+                if (!inserted.add(full)) continue
+                val dup = existing.any {
+                    it.name == c.name && it.weekday == c.weekday &&
+                        it.startPeriod == c.startPeriod && it.endPeriod == c.endPeriod &&
+                        it.weeks == c.weeks && it.location == c.location
+                }
+                if (dup) continue
+                val id = addCourseFull(ctx, c.copy(source = "jwxt"), colorAt(n))
+                if (id <= 0) continue
+                newIds.getOrPut(skipKey(c.name, c.weekday, c.startPeriod)) { ArrayList() }.add(id)
+                n++
+            }
+
+            // ④ 用同一身份键把停课标记恢复到新课程 id 上
+            for ((key, dates) in oldSkips) {
+                val ids = newIds[key] ?: continue
+                for (id in ids) {
+                    for (date in dates) {
+                        val v = ContentValues().apply {
+                            put("course_id", id)
+                            put("date", date)
+                        }
+                        d.insertWithOnConflict(
+                            "course_skips", null, v,
+                            android.database.sqlite.SQLiteDatabase.CONFLICT_IGNORE
+                        )
+                    }
+                }
+            }
+            d.setTransactionSuccessful()
+        } finally {
+            d.endTransaction()
         }
         return n
     }

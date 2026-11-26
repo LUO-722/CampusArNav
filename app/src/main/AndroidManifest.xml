@@ -18,16 +18,13 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.CampusAr">
 
+        <!-- 登录教务降级为应用内页面：不再做 LAUNCHER，只从「我的 / 课程表提示条」进来 -->
         <activity
             android:name=".LoginActivity"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false"
+            android:label="登录教务" />
 
         <activity
             android:name=".CalibrateActivity"
@@ -46,11 +43,20 @@
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:exported="false" />
+        <!-- 首屏：冷启动直接进课程表主壳（先看产品，登录是可选项）。
+             singleTask：LoginActivity.enterApp() 会 startActivity 主壳，
+             单实例避免登录回来后叠出第二层主壳。 -->
         <activity
             android:name=".MainShellActivity"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
-            android:exported="false" />
+            android:launchMode="singleTask"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <activity
             android:name=".MainActivity"
             android:screenOrientation="portrait"

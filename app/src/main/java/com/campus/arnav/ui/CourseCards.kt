@@ -69,6 +69,7 @@ fun dayCard(ctx: Context, padH: Int = 16, padV: Int = 12): LinearLayout = Linear
 /**
  * 一条日程卡片：彩色圆点 + 手写标题 + 时间（可带「1小时27分钟后开始」）+ 地点。
  * [passed] 为 true 时整卡淡化并对标题/时间加删除线（照搬参考图里上完的课的样子）。
+ * [demo] 为 true 时在标题右侧加一个「示例」小标签（演示课表一眼可辨）。
  */
 fun scheduleCard(
     ctx: Context,
@@ -78,6 +79,7 @@ fun scheduleCard(
     hint: String,
     place: String,
     passed: Boolean,
+    demo: Boolean = false,
     onClick: (() -> Unit)? = null
 ): LinearLayout {
     val card = dayCard(ctx)
@@ -93,6 +95,16 @@ fun scheduleCard(
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
     head.addView(name, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    if (demo) {
+        // 「示例」小标签：浅粉底 + 主色字，尺寸跟旁边元信息一个量级
+        val badge = textView(ctx, "示例", 10f, ctx.color(R.color.accent)).apply {
+            background = rounded(ctx, ctx.color(R.color.accent_soft), 7)
+            setPadding(ctx.dp(5), ctx.dp(1), ctx.dp(5), ctx.dp(1))
+        }
+        head.addView(badge, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { leftMargin = ctx.dp(6) })
+    }
     card.addView(head)
 
     val timeLine = if (hint.isBlank()) timeText else "$timeText  |  $hint"

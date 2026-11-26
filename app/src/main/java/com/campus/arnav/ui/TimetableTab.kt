@@ -13,6 +13,7 @@ import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
+import com.campus.arnav.LoginActivity
 import com.campus.arnav.R
 import com.campus.arnav.data.Activity
 import com.campus.arnav.data.Course
@@ -37,6 +38,8 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
     private val todayBox = LinearLayout(ctx)
     private val upcomingBox = LinearLayout(ctx)
     private val weekBox = LinearLayout(ctx)
+    /** 顶部「当前是示例课表」提示条：全部是示例数据时显示。 */
+    private val demoTip = LinearLayout(ctx)
 
     private val dayNavLabel = handText(ctx, "", 15f, ctx.color(R.color.text_primary)).apply {
         gravity = Gravity.CENTER
@@ -59,6 +62,12 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         setPadding(ctx.dp(16), ctx.dp(12), ctx.dp(16), ctx.dp(8))
 
         addView(buildHeader())
+
+        // 示例课表提示条：放在「周 / 日」两视图共用的顶部，切换视图不影响
+        buildDemoTip()
+        addView(demoTip, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = ctx.dp(8) })
 
         buildWeekBox()
         addView(weekBox)
@@ -105,6 +114,39 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         }
         header.addView(seg, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         return header
+    }
+
+    /** 全部是示例课表时的一条浅粉提示：可以一键去登录，也可以点右上「清空」自己录。 */
+    private fun buildDemoTip() {
+        demoTip.orientation = HORIZONTAL
+        demoTip.gravity = Gravity.CENTER_VERTICAL
+        demoTip.background = rounded(ctx, ctx.color(R.color.accent_soft), 12)
+        demoTip.setPadding(ctx.dp(10), ctx.dp(7), ctx.dp(10), ctx.dp(7))
+        demoTip.visibility = View.GONE
+        demoTip.addView(
+            textView(ctx, "当前是示例课表 · 登录教务自动替换为你的真实课表", 11f, ctx.color(R.color.accent)),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        val go = textView(ctx, "去登录", 11f, ctx.color(R.color.accent), bold = true).apply {
+            background = rounded(ctx, Color.WHITE, 8)
+            setPadding(ctx.dp(9), ctx.dp(3), ctx.dp(9), ctx.dp(3))
+            setOnClickListener { openLogin() }
+        }
+        demoTip.addView(go, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { leftMargin = ctx.dp(8) })
+    }
+
+    /** 打开登录页（可选动作）：登录成功后由 MainShell 在 onResume 里刷新课表。 */
+    private fun openLogin() {
+        val c = ctx
+        try {
+            val i = Intent(c, LoginActivity::class.java)
+            if (c !is android.app.Activity) i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            c.startActivity(i)
+        } catch (e: Exception) {
+            ctx.toast("打不开登录页：${e.message}")
+        }
     }
 
     private fun setMode(m: Int) {
@@ -170,13 +212,14 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f).apply { leftMargin = ctx.dp(6) })
         ops.addView(button(ctx, "示例课表", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
             setOnClickListener {
+                // 语义 = 「恢复示例课表」：课表空的时候才铺示例，已有课程时先请人清空
                 if (CourseStore.courses(ctx).isNotEmpty()) {
-                    ctx.toast("课表里已有课程，先点「清空」再载入示例")
+                    ctx.toast("课表里已有课程，先点「清空」再恢复示例课表")
                     return@setOnClickListener
                 }
                 CourseStore.seedDemo(ctx, force = true)
                 refresh()
-                ctx.toast("已载入演示课表")
+                ctx.toast("已恢复示例课表，可随时清空")
             }
         }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f).apply { leftMargin = ctx.dp(6) })
         weekBox.addView(ops)
@@ -288,6 +331,10 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         // 节次时间用知识库《作息时间与门禁》的科文作息：8:15 开始、全年一套、不分冬夏
         weekLabel.text = ScheduleLogic.weekLabel(shownWeek)
         subTitle.text = "${ScheduleLogic.semesterName()} · ${ScheduleLogic.totalWeeks()} 周 · 本周第 ${ScheduleLogic.currentWeek()} 周 · 科文作息 8:15—20:40"
+
+        // 整张课表都是示例数据（user 还没登录、也没自己录课）时，顶部提示可以一键去登录
+        val allDemo = courses.isNotEmpty() && courses.all { it.source == "demo" }
+        demoTip.visibility = if (allDemo) View.VISIBLE else View.GONE
 
         fillWeekSections(activities)
         fillDay(courses, activities)
@@ -430,7 +477,8 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                 "${it.start}-${it.end}",
                 startHint(shownDate, it.end, it.start),
                 it.place,
-                isPassed(shownDate, it.end)
+                isPassed(shownDate, it.end),
+                demo = it.course?.source == "demo"
             ) {
                 val c = it.course
                 if (c != null) showCourse(c) else it.activity?.let { a -> showActivity(a) }

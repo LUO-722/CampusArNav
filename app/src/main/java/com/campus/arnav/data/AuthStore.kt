@@ -15,14 +15,14 @@ import javax.crypto.spec.GCMParameterSpec
  *
  * - 密码用 AndroidKeyStore 里的 AES/GCM 密钥加密后再存 SharedPreferences，明文不落盘；
  *   取不到密钥环境（个别定制 ROM）时退化为不保存密码，只记学号。
- * - 内网全天可登录；外网 09:00—18:00 不能登录（学校口径），由 [wanBlocked] 判定。
+ * - 内网全天可登录；外网入口开放 09:00—18:00，[wanBlocked] 只用于提示，不拦请求。
  */
 object AuthStore {
 
     const val MODE_LAN = "lan"
     const val MODE_WAN = "wan"
     const val DEFAULT_LAN_BASE = "http://10.110.225.76/jsxsd/"
-    /** 外网入口（学校对外映射），9:00—18:00 不可登录。 */
+    /** 外网入口（学校对外映射），开放时段 9:00—18:00。 */
     const val DEFAULT_WAN_BASE = "http://222.187.129.200:51234/jsxsd/"
 
     const val WAN_BLOCK_START_HOUR = 9
@@ -123,13 +123,18 @@ object AuthStore {
 
     // ---------------- 外网时段 ----------------
 
-    /** 外网 09:00—18:00 不能登录（含 9:00，不含 18:00）。 */
-    fun wanBlockedHour(hour: Int): Boolean = hour in WAN_BLOCK_START_HOUR until WAN_BLOCK_END_HOUR
+    /**
+     * 学校外网入口的开放时段是 09:00—18:00（含 9:00，不含 18:00），其余时间外网一般连不通。
+     *
+     * 注意：这只是「提示」，不是硬拦截 —— 实测过 12:14 外网可以正常登录，所以时段内外的
+     * 判断只用来提醒用户，真连不上时由网络层给出「连不上服务器」的错误，不在这里一刀切。
+     */
+    fun wanBlockedHour(hour: Int): Boolean = hour !in WAN_BLOCK_START_HOUR until WAN_BLOCK_END_HOUR
 
     fun wanBlocked(now: java.util.Calendar = java.util.Calendar.getInstance()): Boolean =
         wanBlockedHour(now.get(java.util.Calendar.HOUR_OF_DAY))
 
-    fun wanWindowText(): String = "外网 ${WAN_BLOCK_START_HOUR}:00—${WAN_BLOCK_END_HOUR}:00 不可登录"
+    fun wanWindowText(): String = "外网开放时间 ${WAN_BLOCK_START_HOUR}:00—${WAN_BLOCK_END_HOUR}:00"
 
     fun nowText(): String {
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())

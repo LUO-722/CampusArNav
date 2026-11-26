@@ -96,7 +96,7 @@ class ChatTab(
             setOnClickListener { pickImage() }
         }, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(42)).apply { rightMargin = ctx.dp(6) })
         row.addView(input, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        row.addView(button(ctx, "发送", ctx.color(R.color.accent), Color.parseColor("#1A120C")).apply {
+        row.addView(button(ctx, "发送", ctx.color(R.color.accent), Color.parseColor("#FFFFFF")).apply {
             setOnClickListener { send() }
         }, LinearLayout.LayoutParams(ctx.dp(64), ctx.dp(42)).apply { leftMargin = ctx.dp(6) })
         addView(row)
@@ -224,7 +224,7 @@ class ChatTab(
             this.text = if (assistant) plain(text) else text
             textSize = 14f
             maxWidth = resources.displayMetrics.widthPixels - ctx.dp(64)
-            setTextColor(if (assistant) ctx.color(R.color.text_primary) else Color.parseColor("#1A120C"))
+            setTextColor(if (assistant) ctx.color(R.color.text_primary) else Color.parseColor("#FFFFFF"))
             setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), ctx.dp(10))
             background = rounded(ctx, if (assistant) ctx.color(R.color.bg_card) else ctx.color(R.color.accent), 14)
             setTextIsSelectable(true)

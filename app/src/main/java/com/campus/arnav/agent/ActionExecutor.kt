@@ -52,7 +52,7 @@ object ActionExecutor {
         if (dup) return "课程表里已有「$name」：周${ScheduleLogic.weekdayName(wd)} 第 $st-$en 节，未重复添加。"
         CourseStore.addCourse(
             ctx, name, teacher, location, wd, st, en, weeks,
-            color = 0xFFB5642A.toInt(), source = "agent"
+            color = 0xFFF8AECB.toInt(), source = "agent"
         )
         return "已添加到课程表：$name，周${ScheduleLogic.weekdayName(wd)} 第 $st-$en 节，$weeks 周，$location"
     }

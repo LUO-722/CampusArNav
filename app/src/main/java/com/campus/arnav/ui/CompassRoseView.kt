@@ -43,19 +43,19 @@ class CompassRoseView @JvmOverloads constructor(
         super.onDraw(canvas)
         val w = width.toFloat()
         val h = height.toFloat()
-        fill.color = Color.parseColor("#1A120C")
+        fill.color = Color.parseColor("#FFF7FB")
         canvas.drawRect(0f, 0f, w, h, fill)
 
         text.textSize = 15f * dp
         text.typeface = Typeface.DEFAULT_BOLD
-        text.color = Color.parseColor("#FFB067")
+        text.color = Color.parseColor("#E8447A")
         canvas.drawText("2D 模式", w / 2f, topInsetPx + 48f * dp, text)
 
         val cx = w / 2f
         val cy = h * 0.46f
         val radius = min(w, h) * 0.30f
 
-        stroke.color = Color.argb(120, 255, 255, 255)
+        stroke.color = Color.argb(90, 232, 68, 122)
         canvas.drawCircle(cx, cy, radius, stroke)
 
         val heading = if (headingDeg.isNaN()) 0f else headingDeg
@@ -66,7 +66,7 @@ class CompassRoseView @JvmOverloads constructor(
             val a = Math.toRadians((deg - heading).toDouble())
             val x = cx + (Math.sin(a) * radius * 0.86).toFloat()
             val y = cy - (Math.cos(a) * radius * 0.86).toFloat() + 5f * dp
-            text.color = if (label == "N") Color.parseColor("#FFB067") else Color.argb(200, 255, 255, 255)
+            text.color = if (label == "N") Color.parseColor("#E8447A") else Color.argb(220, 61, 51, 64)
             canvas.drawText(label, x, y, text)
         }
 
@@ -74,7 +74,7 @@ class CompassRoseView @JvmOverloads constructor(
         val rel = (bearingDeg - heading + 540f) % 360f - 180f
         canvas.save()
         canvas.rotate(rel, cx, cy)
-        fill.color = Color.parseColor("#FFB067")
+        fill.color = Color.parseColor("#E8447A")
         val p = android.graphics.Path()
         val len = radius * 0.72f
         p.moveTo(cx, cy - len)
@@ -86,17 +86,17 @@ class CompassRoseView @JvmOverloads constructor(
         canvas.restore()
 
         // 中心点
-        fill.color = Color.WHITE
+        fill.color = Color.parseColor("#E8447A")
         canvas.drawCircle(cx, cy, 5f * dp, fill)
 
         text.typeface = Typeface.DEFAULT_BOLD
         text.textSize = 34f * dp
-        text.color = Color.WHITE
+        text.color = Color.parseColor("#3D3340")
         canvas.drawText(formatDistance(distanceMeters), cx, cy + radius + 66f * dp, text)
 
         text.typeface = Typeface.DEFAULT
         text.textSize = 14f * dp
-        text.color = Color.argb(190, 255, 255, 255)
+        text.color = Color.argb(190, 61, 51, 64)
         val hint = if (rel > 8f) "偏右 " + rel.toInt() + "°"
         else if (rel < -8f) "偏左 " + (-rel).toInt() + "°"
         else "方向正确"
@@ -104,7 +104,7 @@ class CompassRoseView @JvmOverloads constructor(
 
         if (instruction.isNotEmpty()) {
             text.textSize = 15f * dp
-            text.color = Color.parseColor("#FFB067")
+            text.color = Color.parseColor("#E8447A")
             canvas.drawText(instruction, cx, h - bottomInsetPx - 60f * dp, text)
         }
     }

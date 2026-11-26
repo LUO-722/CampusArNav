@@ -2,6 +2,7 @@ package com.campus.arnav
 
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
@@ -16,15 +17,49 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.SettingsStore
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.ChatTab
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.NavTab
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.ProfileTab
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.TimetableTab
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.ZhijiaTab
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.applySystemBarInsets
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.color
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.dp
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.rounded
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.textView
 
 /**
@@ -64,13 +99,14 @@ class MainShellActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        insLightBars()
         Log.i("MainShell", "onCreate saved=" + (savedInstanceState != null) + " tabArg=" + (savedInstanceState?.getInt("tab", -1) ?: -1))
         SettingsStore.applySemester(this)
         CourseStore.seedDemoIfEmpty(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(color(R.color.bg_dark))
+            background = insBackground(this@MainShellActivity)
         }
         setContentView(root)
         root.applySystemBarInsets { top, bottom, _, _ ->
@@ -82,7 +118,15 @@ class MainShellActivity : AppCompatActivity() {
 
         navBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(color(R.color.bg_card))
+            // Ins 风：白色胶囊式底栏，上沿圆角 + 一条淡粉描边
+            val r = dp(20).toFloat()
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+                setColor(color(R.color.bg_card))
+                setStroke(dp(1), color(R.color.border))
+            }
+            elevation = dp(6).toFloat()
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
         root.addView(navBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(62)))
@@ -168,7 +212,7 @@ class MainShellActivity : AppCompatActivity() {
         for ((idx, tv) in navButtons.withIndex()) {
             val on = idx == i
             tv.setTextColor(if (on) color(R.color.accent) else color(R.color.text_secondary))
-            tv.background = if (on) rounded(this, Color.parseColor("#2A1E15"), 12) else null
+            tv.background = if (on) rounded(this, Color.parseColor("#FFE3EE"), 12) else null
         }
     }
 

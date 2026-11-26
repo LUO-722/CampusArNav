@@ -36,8 +36,8 @@ class ZhijiaTab(
     private val draftBox = LinearLayout(ctx)
     private val drafts = ArrayList<ActivityDraft>()
     private val checked = ArrayList<Boolean>()
-    private val saveBtn = button(ctx, "录入选中活动", ctx.color(R.color.accent), Color.parseColor("#1A120C"))
-    private val extractBtn = button(ctx, "让智嘉提取活动", ctx.color(R.color.accent), Color.parseColor("#1A120C"))
+    private val saveBtn = button(ctx, "录入选中活动", ctx.color(R.color.accent), Color.parseColor("#FFFFFF"))
+    private val extractBtn = button(ctx, "让智嘉提取活动", ctx.color(R.color.accent), Color.parseColor("#FFFFFF"))
     private var extracting = false
     private var ocrBusy = false
 
@@ -108,7 +108,7 @@ class ZhijiaTab(
         mode = m
         for ((i, b) in modeButtons.withIndex()) {
             val on = i == m
-            b.setTextColor(if (on) Color.parseColor("#1A120C") else ctx.color(R.color.text_secondary))
+            b.setTextColor(if (on) Color.parseColor("#FFFFFF") else ctx.color(R.color.text_secondary))
             b.background = rounded(ctx, if (on) ctx.color(R.color.accent) else ctx.color(R.color.bg_card), 12)
         }
         input.visibility = if (m == 1) GONE else VISIBLE
@@ -244,7 +244,7 @@ class ZhijiaTab(
         checked.clear()
         repeat(list.size) { checked.add(true) }
         status.text = if (list.isEmpty()) "没有识别到需要参加的活动，换一段原文试试。" else "识别到 ${list.size} 项活动，核对后录入。"
-        status.setTextColor(if (list.isEmpty()) Color.parseColor("#FFB86B") else ctx.color(R.color.text_secondary))
+        status.setTextColor(if (list.isEmpty()) Color.parseColor("#E8447A") else ctx.color(R.color.text_secondary))
         renderDrafts()
     }
 

@@ -152,9 +152,11 @@ object SelfCheck {
                 acts.optJSONObject(0)?.optString("title") == "讲座"
         }
         check("外网时段") {
-            !AuthStore.wanBlockedHour(8) && AuthStore.wanBlockedHour(9) &&
-                AuthStore.wanBlockedHour(17) && !AuthStore.wanBlockedHour(18) &&
-                AuthStore.wanBlockedHour(0) == false
+            // 外网开放 09:00—18:00：窗口内不提示，窗口外只提示、不拦请求
+            AuthStore.wanBlockedHour(8) && !AuthStore.wanBlockedHour(9) &&
+                !AuthStore.wanBlockedHour(13) && !AuthStore.wanBlockedHour(17) &&
+                AuthStore.wanBlockedHour(18) && AuthStore.wanBlockedHour(0) &&
+                AuthStore.wanBlockedHour(23)
         }
         check("教务登录编码") {
             // 正方 encodeInp：base64(学号) + "%%%" + base64(密码)；"2026010101" / "abc123"
@@ -166,62 +168,31 @@ object SelfCheck {
                 !enc.contains("\n")
         }
         check("教务课表解析") {
-            val html = """
-                <table id="kbtable">
-                  <tr><th>节次</th><th>星期一</th><th>星期二</th><th>星期三</th><th>星期四</th><th>星期五</th></tr>
-                  <tr><td>第1节</td>
-                      <td><div>高等数学A(一)<br/>1-16周<br/>格物楼101<br/>张老师</div></td>
-                      <td></td><td></td><td></td><td></td></tr>
-                  <tr><td>第3节</td>
-                      <td></td>
-                      <td><div>大学英语(一)<br/>1-8周<br/>博学楼205</div></td>
-                      <td></td><td></td><td></td></tr>
-                </table>
-            """.trimIndent()
-            val list = JwxtClient.parseTimetable(html)
-            val a = list.firstOrNull { it.name.startsWith("高等数学") }
-            val b = list.firstOrNull { it.name.startsWith("大学英语") }
-            list.size == 2 &&
-                a?.weekday == 1 && a.startPeriod == 1 && a.location.contains("格物") &&
-                a.weeks.contains("1") &&
-                b?.weekday == 2 && b.startPeriod == 3 &&
+            // 强智教务真实结构：table#timetable + td 里 div.kbcontent，多门课用「------」分隔
+            val list = JwxtClient.parseTimetable(SelfCheckSample.timetable())
+            val math = list.firstOrNull { it.name.startsWith("高等数学") && it.weeks == "6-9" }
+            val english = list.firstOrNull { it.name.startsWith("大学英语") }
+            list.size == 3 &&
+                math?.weekday == 1 && math.startPeriod == 3 && math.endPeriod == 5 &&
+                math.location == "致广楼-303" &&
+                english?.weekday == 2 && english.startPeriod == 6 && english.endPeriod == 7 &&
                 list.all { it.source == "jwxt" }
         }
         check("教务原文保留") {
-            val html = """
-                <table id="kbtable">
-                  <tr><th>节次</th><th>星期一</th><th>星期二</th></tr>
-                  <tr><td>第1节</td>
-                      <td><div>高等数学A(一)<br/>(1-2节)1-16周<br/>格物楼101<br/>张老师</div></td>
-                      <td></td></tr>
-                </table>
-            """.trimIndent()
-            val c = JwxtClient.parseTimetable(html).firstOrNull()
-            c != null && c.raw.contains("格物楼101") &&
-                c.raw.contains("高等数学A(一)") &&
-                c.weekText.contains("周") &&
-                c.periodText.contains("节")
+            val c = JwxtClient.parseTimetable(SelfCheckSample.timetable())
+                .firstOrNull { it.name.startsWith("高等数学") }
+            c != null && c.raw.contains("高等数学ⅠA") && c.raw.contains("潘安湖致广楼-303") &&
+                c.weekText.contains("周") && c.periodText.contains("节") &&
+                c.raw.contains("通知单编号")
         }
         check("考试解析") {
-            val html = """
-                <table>
-                  <tr><th>课程名称</th><th>考试时间</th><th>考试地点</th><th>座位号</th></tr>
-                  <tr><td>高等数学A(一)</td><td>2027-01-08 09:00</td><td>博学楼305</td><td>12</td></tr>
-                </table>
-            """.trimIndent()
-            val e = JwxtClient.parseExams(html)
+            val e = JwxtClient.parseExams(SelfCheckSample.exam())
             e.size == 1 && e[0].course.startsWith("高等数学") &&
-                e[0].time.contains("2027-01-08") && e[0].location.contains("博学") &&
-                e[0].seat == "12" && e[0].raw.contains("博学楼305")
+                e[0].time.contains("2027-01-08") && e[0].location.contains("致广") &&
+                e[0].seat == "12" && e[0].raw.contains("致广楼-303")
         }
         check("成绩解析") {
-            val html = """
-                <table>
-                  <tr><th>学期</th><th>课程名称</th><th>学分</th><th>总成绩</th><th>绩点</th></tr>
-                  <tr><td>2026-2027-1</td><td>高等数学A(一)</td><td>5</td><td>88</td><td>3.8</td></tr>
-                </table>
-            """.trimIndent()
-            val g = JwxtClient.parseGrades(html)
+            val g = JwxtClient.parseGrades(SelfCheckSample.grade())
             g.size == 1 && g[0].term.contains("2026") && g[0].course.startsWith("高等数学") &&
                 g[0].credit == "5" && g[0].score == "88" && g[0].gpa == "3.8"
         }

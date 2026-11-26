@@ -17,6 +17,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.campus.arnav.core.PoiStore
 import com.campus.arnav.core.RouteRepository
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.applySystemBarInsets
 import java.util.Locale
 
@@ -48,6 +51,7 @@ class CalibrateActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        insLightBars()
         val density = resources.displayMetrics.density
         val pad = (20 * density).toInt()
 

@@ -14,7 +14,13 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import com.campus.arnav.core.HeadingProvider
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.ArrowOverlayView
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.applySystemBarInsets
 import java.util.Locale
 import java.util.concurrent.ExecutorService
@@ -36,6 +42,7 @@ class CompassTestActivity : AppCompatActivity(), HeadingProvider.Listener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        insLightBars()
         setContentView(R.layout.activity_compass_test)
 
         previewView = findViewById(R.id.viewFinder)

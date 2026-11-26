@@ -41,25 +41,25 @@ class TimetableGridView @JvmOverloads constructor(
     private val headerH = 30 * density
     private val rowH = 54 * density
 
-    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1E1610.toInt() }
+    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF3D2C20.toInt()
+        color = 0xFFF4DEE8.toInt()
         strokeWidth = 1 * density
         style = Paint.Style.STROKE
     }
     private val headPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFC7A98C.toInt()
+        color = 0xFF9C8AA3.toInt()
         textSize = 11 * density
         textAlign = Paint.Align.CENTER
     }
     private val periodPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFC7A98C.toInt()
+        color = 0xFF9C8AA3.toInt()
         textSize = 11 * density
         textAlign = Paint.Align.CENTER
     }
     /** 节次时间：08:15 这类小字，画在节次号下面。 */
     private val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF9A7E62.toInt()
+        color = 0xFFB9A8C0.toInt()
         textSize = 8.5f * density
         textAlign = Paint.Align.CENTER
     }
@@ -81,18 +81,18 @@ class TimetableGridView @JvmOverloads constructor(
         strokeWidth = 1.2f * density
     }
     private val activityNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF3A2413.toInt()
+        color = 0xFF3D3340.toInt()
         textSize = 9.5f * density
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
     }
     private val activityTimePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xCC3A2413.toInt()
+        color = 0xCC3D3340.toInt()
         textSize = 8.5f * density
         textAlign = Paint.Align.CENTER
     }
     private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0x33FFFFFF
+        color = 0x14E8447A
         style = Paint.Style.STROKE
         strokeWidth = 1 * density
     }
@@ -175,10 +175,10 @@ class TimetableGridView @JvmOverloads constructor(
             val w = dayW - 4 * density
             val h = rowH * (ep - sp + 1) - 4 * density
             blockRect.set(x, y, x + w, y + h)
-            fillPaint.color = if (a.conflict) 0x66FF8F5E.toInt() else 0x59FFB067
+            fillPaint.color = if (a.conflict) 0x66FFC2C8.toInt() else 0x66FFD9E6
             canvas.drawRoundRect(blockRect, 6 * density, 6 * density, fillPaint)
             activityStroke.pathEffect = DashPathEffect(floatArrayOf(3 * density, 2 * density), 0f)
-            activityStroke.color = if (a.conflict) 0xCCFF8F5E.toInt() else 0xCCFFB067.toInt()
+            activityStroke.color = if (a.conflict) 0xCCD6455F.toInt() else 0xCCE8447A.toInt()
             canvas.drawRoundRect(blockRect, 6 * density, 6 * density, activityStroke)
             activityStroke.pathEffect = null
 

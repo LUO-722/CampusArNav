@@ -14,11 +14,11 @@ import java.util.Locale
  */
 object CourseStore {
 
-    /** 暖色系课程配色：琥珀 / 赤陶 / 赭石 / 暖橄榄 / 陶土粉 / 蜜糖 / 焦糖 / 暖棕。 */
+    /** Ins 风格课程配色：粉 / 浅蓝 / 淡紫 / 薄荷 / 蜜桃 / 玫瑰 / 天空蓝 / 藕粉。 */
     private val palette = intArrayOf(
-        0xFFB5642A.toInt(), 0xFFA34A2E.toInt(), 0xFF8C6A2F.toInt(),
-        0xFF6E7A3A.toInt(), 0xFF9E4B5C.toInt(), 0xFFC98A3C.toInt(),
-        0xFF7A5636.toInt(), 0xFFB0763A.toInt()
+        0xFFF8AECB.toInt(), 0xFFA8D8F2.toInt(), 0xFFC9BCEC.toInt(),
+        0xFFA9E3C9.toInt(), 0xFFFFC9A8.toInt(), 0xFFF3BBDB.toInt(),
+        0xFF9DCBF0.toInt(), 0xFFE7B7CE.toInt()
     )
 
     private fun db(ctx: Context) = AppDb.get(ctx).writableDatabase
@@ -404,7 +404,9 @@ object CourseStore {
         var n = 0
         for (c in list) {
             val dup = existing.any {
-                it.name == c.name && it.weekday == c.weekday && it.startPeriod == c.startPeriod
+                it.name == c.name && it.weekday == c.weekday &&
+                    it.startPeriod == c.startPeriod && it.endPeriod == c.endPeriod &&
+                    it.weeks == c.weeks && it.location == c.location
             }
             if (dup) continue
             addCourseFull(ctx, c.copy(source = "jwxt"), colorAt(n))

@@ -133,7 +133,13 @@ object LlmClient {
         var last: LlmException? = null
         for (m in chain) {
             try {
-                return postOnce(provider, buildBody(m))
+                val text = postOnce(provider, buildBody(m))
+                // 推理型模型偶尔把 token 全用在 reasoning 上，content 为空的“成功”也要换下一个
+                if (parseContent(text).isBlank()) {
+                    last = RetryableLlmException("模型 ${m} 返回了空内容")
+                    continue
+                }
+                return text
             } catch (e: RetryableLlmException) {
                 last = e
             }

@@ -241,7 +241,7 @@ class CalibrateActivity : AppCompatActivity() {
         input.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
         input.setHintTextColor(ContextCompat.getColor(this, R.color.text_secondary))
 
-        android.app.AlertDialog.Builder(this)
+        android.app.AlertDialog.Builder(this, R.style.Theme_CampusAr_Dialog)
             .setTitle(String.format(Locale.US, "存成新地点（当前精度 ±%.0f 米）", loc.accuracy))
             .setView(input)
             .setPositiveButton("保存") { _, _ ->

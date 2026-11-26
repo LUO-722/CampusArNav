@@ -290,7 +290,7 @@ class SettingsActivity : AppCompatActivity() {
                 val report = com.campus.arnav.debug.SelfCheck.format(this)
                 runOnUiThread {
                     status.text = report.lineSequence().firstOrNull() ?: "自检完成"
-                    AlertDialog.Builder(this)
+                    AlertDialog.Builder(this, R.style.Theme_CampusAr_Dialog)
                         .setTitle("离线自检结果")
                         .setMessage(report)
                         .setPositiveButton("知道了", null)

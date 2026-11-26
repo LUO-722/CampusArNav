@@ -1,5 +1,6 @@
 package com.campus.arnav.ui
 
+import com.campus.arnav.R
 import android.content.Context
 import com.campus.arnav.data.Activity
 import com.campus.arnav.data.ActivityDraft
@@ -82,7 +83,7 @@ object ActivityRecord {
             courses.forEach { add("课程「${it.name}」") }
             acts.forEach { add("活动「${it.title}」") }
         }.joinToString("、")
-        AlertDialog.Builder(ctx)
+        AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
             .setTitle("时间冲突：${draft.title}")
             .setMessage(
                 "${draft.date} ${draft.startTime}-${draft.endTime}\n" +

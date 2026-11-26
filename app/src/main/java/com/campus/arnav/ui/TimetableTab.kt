@@ -597,7 +597,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                 append(c.raw)
             }
         }
-        AlertDialog.Builder(ctx)
+        AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
             .setTitle("课程详情")
             .setMessage(info)
             .setPositiveButton("编辑") { _, _ -> editCourse(c) }
@@ -736,7 +736,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
     }
 
     private fun showActivity(a: Activity) {
-        AlertDialog.Builder(ctx)
+        AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
             .setTitle(a.title)
             .setMessage(
                 buildString {

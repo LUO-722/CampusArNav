@@ -159,7 +159,7 @@ fun inputForm(
         box.addView(e)
         edits.add(e)
     }
-    AlertDialog.Builder(ctx)
+    AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
         .setTitle(title)
         .setView(box)
         .setPositiveButton("确定") { _, _ -> onResult(edits.map { it.text.toString().trim() }) }
@@ -175,7 +175,7 @@ fun confirm(
     onCancel: (() -> Unit)? = null,
     onOk: () -> Unit
 ) {
-    AlertDialog.Builder(ctx)
+    AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
         .setTitle(title)
         .setMessage(msg)
         .setPositiveButton(okText) { _, _ -> onOk() }
@@ -189,7 +189,7 @@ fun choose(
     options: List<String>,
     onPick: (Int) -> Unit
 ) {
-    AlertDialog.Builder(ctx)
+    AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
         .setTitle(title)
         .setItems(options.toTypedArray()) { _, which -> onPick(which) }
         .setNegativeButton("取消", null)

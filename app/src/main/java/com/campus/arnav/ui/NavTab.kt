@@ -101,7 +101,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     }
 
     private fun showActions(id: String, name: String, subtitle: String, lat: Double, lon: Double) {
-        AlertDialog.Builder(ctx)
+        AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
             .setTitle(name)
             .setMessage(subtitle + "\n坐标：" +
                 String.format(java.util.Locale.US, "%.5f, %.5f", lat, lon))

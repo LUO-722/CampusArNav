@@ -420,7 +420,7 @@ class LoginActivity : AppCompatActivity() {
             if (sync.saved.isNotEmpty()) append("\n本机存档：" + sync.saved.joinToString("、"))
             if (demoLeft > 0) append("\n\n课表里还有 ").append(demoLeft).append(" 门示例课程，可以一起清掉。")
         }
-        val builder = AlertDialog.Builder(this)
+        val builder = AlertDialog.Builder(this, R.style.Theme_CampusAr_Dialog)
             .setTitle("同步完成")
             .setMessage(text)
             .setPositiveButton("进入应用") { _, _ -> enterApp() }
@@ -443,7 +443,7 @@ class LoginActivity : AppCompatActivity() {
     private fun showSyncIncomplete(sync: JwxtClient.SyncResult) {
         val local = CourseStore.courses(this).size
         val reason = sync.message.ifBlank { "网络或教务端未返回数据" }
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.Theme_CampusAr_Dialog)
             .setTitle("同步未完成")
             .setMessage(
                 "$reason\n\n已保留本机原有课表（$local 条）。\n" +

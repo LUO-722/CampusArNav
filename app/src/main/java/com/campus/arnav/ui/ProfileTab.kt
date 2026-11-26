@@ -425,7 +425,7 @@ class ProfileTab(
                 if (e.seat.isNotBlank()) append("\n座位：").append(e.seat)
             }
         }
-        androidx.appcompat.app.AlertDialog.Builder(ctx)
+        androidx.appcompat.app.AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
             .setTitle("全部考试（" + list.size + "）")
             .setMessage(text)
             .setPositiveButton("好", null)
@@ -442,7 +442,7 @@ class ProfileTab(
             term + g.course + "  " + g.score + (if (g.credit.isNotBlank()) "  " + g.credit + "学分" else "") +
                 (if (g.gpa.isNotBlank()) "  " + g.gpa + "绩点" else "")
         }
-        androidx.appcompat.app.AlertDialog.Builder(ctx)
+        androidx.appcompat.app.AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
             .setTitle("全部成绩（" + list.size + "）")
             .setMessage(text)
             .setPositiveButton("好", null)
@@ -459,7 +459,7 @@ class ProfileTab(
         }
         files.sortBy { it.name }
         val names = files.map { it.name }
-        androidx.appcompat.app.AlertDialog.Builder(ctx)
+        androidx.appcompat.app.AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
             .setTitle("教务原文")
             .setItems(names.toTypedArray()) { _, which ->
                 val f = files[which]
@@ -468,7 +468,7 @@ class ProfileTab(
                 } catch (e: Exception) {
                     "读取失败：" + (e.message ?: "")
                 }
-                androidx.appcompat.app.AlertDialog.Builder(ctx)
+                androidx.appcompat.app.AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
                     .setTitle(f.name)
                     .setMessage(content.take(6000))
                     .setPositiveButton("好", null)

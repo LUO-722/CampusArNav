@@ -10,6 +10,8 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.campus.arnav.R
 import com.campus.arnav.agent.ActionExecutor
 import com.campus.arnav.agent.AgentEngine
@@ -36,6 +38,8 @@ class ChatTab(
     private val input = editText(ctx, "问校园的事，或说“下周三下午3点有个讲座帮我录入”…", android.text.InputType.TYPE_CLASS_TEXT)
     private val modelLabel = textView(ctx, "", 11f, ctx.color(R.color.text_secondary))
     private val history = ArrayList<ChatMsg>()
+    private val padBottom = ctx.dp(8)
+    private var imeExtra = 0
     private var sending = false
     private val greeting = "你好，我是智嘉。可以问我校园制度、办事流程、楼栋位置，也能帮你录活动、加课、设闹钟、找自习的地方。"
 
@@ -43,7 +47,7 @@ class ChatTab(
         orientation = VERTICAL
         // 不铺纯色底，让 MainShell 的 #FFF1F7→#EDF7FF 渐变透出来
         setBackgroundColor(Color.TRANSPARENT)
-        setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), ctx.dp(8))
+        setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), padBottom)
 
         val head = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
@@ -117,6 +121,45 @@ class ChatTab(
         }
         refreshProvider()
         scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        bindImeInsets()
+    }
+
+    /**
+     * 点输入框弹键盘时，让整个对话区（连同输入行）跟着键盘升上来。
+     *
+     * targetSdk 35+ 系统强制 edge-to-edge：manifest 里的 adjustResize 不再压缩窗口，
+     * 键盘只把 IME insets 报给视图。不自己让位，输入行就被压在键盘底下。
+     * 这里量出「本视图底边到窗口底边」还剩多少（主壳 62dp 底栏 + 系统导航栏），
+     * 只补足键盘实际超出的那部分，让输入行贴着键盘上沿。
+     */
+    private fun bindImeInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val sysBottom = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+            if (v.height <= 0 || v.rootView.height <= 0) {
+                // 还没量好尺寸，等布局完再问一次；键盘已经收起就先复位，别把上次的垫高留着
+                if (ime > 0) {
+                    v.post { v.requestApplyInsets() }
+                } else if (imeExtra != 0) {
+                    imeExtra = 0
+                    v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, padBottom)
+                }
+                return@setOnApplyWindowInsetsListener insets
+            }
+            // 窗口被系统压缩过（老系统 adjustResize 真的生效）时 rootView 会明显矮于屏幕，
+            // 此时内容已被整体抬高，再补 padding 会重复位移，所以只在铺满屏幕时自己补。
+            val fullScreen = v.rootView.height >= v.resources.displayMetrics.heightPixels - ctx.dp(80)
+            val loc = IntArray(2)
+            v.getLocationInWindow(loc)
+            val below = (v.rootView.height - loc[1] - v.height).coerceAtLeast(sysBottom)
+            val extra = if (fullScreen) (ime - below).coerceAtLeast(0) else 0
+            if (extra != imeExtra) {
+                imeExtra = extra
+                v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, padBottom + extra)
+                if (extra > 0) scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+            }
+            insets
+        }
     }
 
     fun refreshProvider() {

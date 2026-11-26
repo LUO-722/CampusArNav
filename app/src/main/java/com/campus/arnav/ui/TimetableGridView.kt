@@ -61,7 +61,7 @@ class TimetableGridView @JvmOverloads constructor(
     /** 节次时间：08:15 这类小字，画在节次号下面。 */
     private val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFFB9A8C0.toInt()
-        textSize = 8.5f * density
+        textSize = 8f * density
         textAlign = Paint.Align.CENTER
     }
     private val courseNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -135,15 +135,24 @@ class TimetableGridView @JvmOverloads constructor(
         }
         canvas.drawLine(periodW, 0f, periodW, headerH + rowH * 12, linePaint)
 
-        // 横线 + 节次 + 节次时间（时间来自知识库《作息时间与门禁》科文 12 节作息，全年一套）
+        // 横线 + 节次 + 节次时间
+        // 时间来自知识库《作息时间与门禁》里的科文 12 节作息（全年一套）。左侧时间列按节次上下沿各写一个
+        // 时间：行顶＝本节开始，行底＝本节结束，中间是节次号，这样一眼能看出「几点到几点」。
         for (p in 0..12) {
             val y = headerH + rowH * p
             canvas.drawLine(0f, y, width.toFloat(), y, linePaint)
             if (p < 12) {
                 val mid = y + rowH / 2
-                val start = ScheduleLogic.periodTime(p + 1, "").substringBefore('-')
-                canvas.drawText((p + 1).toString(), periodW / 2, mid - 3 * density, periodPaint)
-                canvas.drawText(start, periodW / 2, mid + 10 * density, timePaint)
+                val range = ScheduleLogic.periodTime(p + 1, "")
+                val start = range.substringBefore('-').trim()
+                val end = range.substringAfter('-', "").trim()
+                canvas.drawText((p + 1).toString(), periodW / 2, mid + 3 * density, periodPaint)
+                if (start.isNotEmpty()) {
+                    canvas.drawText(start, periodW / 2, y + 10 * density, timePaint)
+                }
+                if (end.isNotEmpty()) {
+                    canvas.drawText(end, periodW / 2, y + rowH - 4 * density, timePaint)
+                }
             }
         }
         for (d in 1..7) {

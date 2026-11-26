@@ -112,8 +112,9 @@ object AgentEngine {
             append("你可以：回答校园制度/办事/楼宇问题、查课表、录入活动、添加课程、设闹钟、导航。\n")
             append("涉及学校事实必须优先依据下面的【知识库资料】；资料没有就说“知识库里没写”，不要编造。\n")
             append(ACTION_SPEC).append("\n\n")
-            append("输出必须是严格 json：{\"reply\":\"给用户看的回答\",\"actions\":[...]}。")
+            append("输出必须是严格 json：{\"reply\":\"给用户看的回答\",\"actions\":[...]}。").append("\n")
             append("动作只是补充，能直接回答就不要加动作；用户明确要求录入/设闹钟时才加。\n")
+        append("reply 必须是完整的中文句子（不要只回一个词、不要照抄用户原话、不要加引号）；知识库里没有的就直说没有。\n")
             if (kbContext.isNotBlank()) {
                 append("\n【知识库资料】\n").append(kbContext).append("\n")
             }
@@ -153,9 +154,26 @@ object AgentEngine {
         }
         val a = t.indexOf('{')
         val b = t.lastIndexOf('}')
-        if (a < 0 || b <= a) return null
+        if (a < 0 || b <= a) {
+            // 模型有时把答案直接返回成一个 JSON 字符串（例如 "教三"），没有外层对象：
+            // 也要当成 reply，否则会原样把引号显示给用户。
+            val s = jsonString(t)
+            if (s != null) return JSONObject().put("reply", s)
+            return null
+        }
         return try {
             JSONObject(t.substring(a, b + 1))
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** 解析裸 JSON 字符串字面量（含转义），失败返回 null。 */
+    private fun jsonString(raw: String): String? {
+        val t = raw.trim()
+        if (t.length < 2 || !t.startsWith("\"") || !t.endsWith("\"")) return null
+        return try {
+            org.json.JSONTokener(t).nextValue() as? String
         } catch (e: Exception) {
             null
         }
@@ -168,7 +186,11 @@ object AgentEngine {
             val i = t.lastIndexOf("```")
             if (i >= 0) t = t.substring(0, i).trim()
         }
-        return t
+        // 去最外层引号（模型偶尔把整句回答包在引号里）
+        jsonString(t)?.let { t = it.trim() }
+        if (t.length >= 2 && t.startsWith("\"") && t.endsWith("\"")) t = t.substring(1, t.length - 1).trim()
+        t = t.removePrefix("\"").removeSuffix("\"").trim()
+        return t.ifBlank { "这个问题知识库里没有收录，换个说法或者问细一点再试试。" }
     }
 
     private fun scheduleSummary(ctx: Context): String {

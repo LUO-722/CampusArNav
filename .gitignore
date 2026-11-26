@@ -14,3 +14,5 @@ local.properties
 *.aab
 *.keystore
 !debug.keystore
+# 教务系统抓取缓存（含个人数据，不入库）
+_jwxt_dump/

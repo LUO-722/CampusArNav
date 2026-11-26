@@ -102,14 +102,14 @@ class ArrowOverlayView @JvmOverloads constructor(
                 canvas.drawLine(x, baseY, x, baseY + (if (major) 14f else 8f) * dp, stroke)
                 if (major) {
                     text.textSize = 12f * dp
-                    text.color = if (isCardinal(d)) Color.parseColor("#37E0C8") else Color.argb(200, 255, 255, 255)
+                    text.color = if (isCardinal(d)) Color.parseColor("#FFB067") else Color.argb(200, 255, 255, 255)
                     canvas.drawText(labelFor(d), x, baseY + 32f * dp, text)
                 }
             }
             d += 5
         }
         // 中央朝向指针
-        fill.color = Color.parseColor("#37E0C8")
+        fill.color = Color.parseColor("#FFB067")
         arrowPath.reset()
         arrowPath.moveTo(w / 2f, top + 70f * dp)
         arrowPath.lineTo(w / 2f - 7f * dp, top + 80f * dp)
@@ -176,13 +176,13 @@ class ArrowOverlayView @JvmOverloads constructor(
         fill.color = Color.argb(110, 55, 224, 200)
         drawArrowShape(canvas, x, cy, unit * 1.18f)
         // 主体
-        fill.color = Color.parseColor("#37E0C8")
+        fill.color = Color.parseColor("#FFB067")
         drawArrowShape(canvas, x, cy, unit)
 
         if (outOfFov) {
             // 箭头被压到屏幕边缘时给一个提示
             text.textSize = 13f * dp
-            text.color = Color.parseColor("#37E0C8")
+            text.color = Color.parseColor("#FFB067")
             text.textAlign = Paint.Align.CENTER
             val side = if (x < w / 2f) "◀" else "▶"
             canvas.drawText(side + " " + Math.abs(rel).toInt() + "°", x, cy - unit * 1.6f, text)
@@ -328,7 +328,7 @@ class ArrowOverlayView @JvmOverloads constructor(
 
         text.typeface = Typeface.DEFAULT
         text.textSize = 13f * dp
-        text.color = Color.parseColor("#37E0C8")
+        text.color = Color.parseColor("#FFB067")
         canvas.drawText(formatDistance(distanceMeters) + " 后到达", w / 2f, rect.top + 66f * dp, text)
     }
 
@@ -349,7 +349,7 @@ class ArrowOverlayView @JvmOverloads constructor(
         text.textAlign = Paint.Align.CENTER
         text.typeface = Typeface.DEFAULT_BOLD
         text.textSize = 30f * dp
-        text.color = Color.parseColor("#37E0C8")
+        text.color = Color.parseColor("#FFB067")
         canvas.drawText("已到达", w / 2f, h * 0.44f, text)
         text.textSize = 18f * dp
         text.color = Color.WHITE

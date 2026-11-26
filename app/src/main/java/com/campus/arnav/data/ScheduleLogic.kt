@@ -41,6 +41,24 @@ object ScheduleLogic {
 
     fun semesterName(): String = semesterNameStr
     fun totalWeeks(): Int = totalWeeksValue
+
+    /**
+     * 教务系统用的学期编号，如「2026-2027-1」。
+     *
+     * 教务系统只认这种写法，界面上的「2026—2027 学年第一学期」需要转一下：
+     * 取前两个四位数字年份 + 第/二学期序号。
+     */
+    fun semesterId(): String {
+        val name = semesterNameStr
+        val years = Regex("(\\d{4})\\D+(\\d{4})").find(name)
+        val second = name.contains("第二学期") || name.contains("春季")
+        val idx = if (second) "2" else "1"
+        if (years != null) {
+            return years.groupValues[1] + "-" + years.groupValues[2] + "-" + idx
+        }
+        val y = Calendar.getInstance().get(Calendar.YEAR)
+        return "$y-${y + 1}-$idx"
+    }
     fun semesterStartText(): String = semesterStartStr
 
     fun parseDate(s: String): Date? = try {
@@ -87,30 +105,20 @@ object ScheduleLogic {
     fun weekdayName(weekday: Int): String =
         arrayOf("一", "二", "三", "四", "五", "六", "日").getOrElse(weekday - 1) { "?" }
 
-    // ---- 节次作息 ----
+    // ---- 节次作息（科文学院潘安湖校区《教学作息时间表》，全年一套、不分季节） ----
 
-    private val winterTimes = arrayOf(
-        "08:00-08:40", "08:45-09:25", "09:45-10:25", "10:30-11:10", "11:15-11:55",
-        "14:00-14:40", "14:45-15:25", "15:45-16:25", "16:30-17:10",
-        "18:30-19:10", "19:15-19:55", "20:00-20:40"
-    )
-    private val summerTimes = arrayOf(
-        "08:00-08:40", "08:45-09:25", "09:45-10:25", "10:30-11:10", "11:15-11:55",
-        "14:30-15:10", "15:15-15:55", "16:15-16:55", "17:00-17:40",
+    private val times = arrayOf(
+        "08:15-08:55", "09:00-09:40", "09:55-10:35", "10:40-11:20", "11:25-12:05",
+        "13:50-14:30", "14:35-15:15", "15:30-16:10", "16:15-16:55",
         "18:30-19:10", "19:15-19:55", "20:00-20:40"
     )
 
-    /** 5 月 1 日—9 月 30 日执行夏季作息。 */
-    fun isSummer(date: String): Boolean {
-        val d = parseDate(date) ?: return false
-        val c = Calendar.getInstance()
-        c.time = d
-        return c.get(Calendar.MONTH) + 1 in 5..9
-    }
-
+    /**
+     * 节次起止时间。科文学院教学作息全年一套（8:15 开始、20:40 结束），
+     * 不区分冬夏，因此 date 参数仅为兼容旧调用保留。
+     */
     fun periodTime(period: Int, date: String): String {
-        val arr = if (isSummer(date)) summerTimes else winterTimes
-        return arr.getOrElse(period - 1) { "" }
+        return times.getOrElse(period - 1) { "" }
     }
 
     fun periodRangeMinutes(period: Int, date: String): Pair<Int, Int> {

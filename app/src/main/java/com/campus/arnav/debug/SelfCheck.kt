@@ -4,9 +4,12 @@ import android.content.Context
 import com.campus.arnav.agent.AgentEngine
 import com.campus.arnav.agent.NoticeExtractor
 import com.campus.arnav.data.AppDb
+import com.campus.arnav.data.AuthStore
 import com.campus.arnav.data.CourseStore
+import com.campus.arnav.data.Activity
 import com.campus.arnav.data.ScheduleLogic
 import com.campus.arnav.kb.KbIndex
+import com.campus.arnav.net.JwxtClient
 import org.json.JSONObject
 
 /**
@@ -53,15 +56,18 @@ object SelfCheck {
                 !ScheduleLogic.weekMatches("1-8,10-16", 9)
         }
         check("作息节次") {
-            ScheduleLogic.periodTime(1, "2026-10-10") == "08:00-08:40" &&
-                ScheduleLogic.periodTime(6, "2026-10-10") == "14:00-14:40" &&
-                ScheduleLogic.periodTime(6, "2026-05-10") == "14:30-15:10" &&
-                ScheduleLogic.periodTime(12, "2026-10-10") == "20:00-20:40"
+            ScheduleLogic.periodTime(1, "2026-10-10") == "08:15-08:55" &&
+                ScheduleLogic.periodTime(6, "2026-10-10") == "13:50-14:30" &&
+                ScheduleLogic.periodTime(12, "2026-10-10") == "20:00-20:40" &&
+                // 科文作息全年一套：5 月与 10 月同一节次时间一致
+                ScheduleLogic.periodTime(1, "2026-05-10") == "08:15-08:55" &&
+                ScheduleLogic.periodTime(6, "2026-05-10") == "13:50-14:30"
         }
         check("节次定位") {
-            ScheduleLogic.periodForTime("08:00", "2026-10-10") == 1 &&
-                ScheduleLogic.periodForTime("09:30", "2026-10-10") == 3 &&
-                ScheduleLogic.periodForTime("10:30", "2026-10-10") == 4 &&
+            ScheduleLogic.periodForTime("08:15", "2026-10-10") == 1 &&
+                ScheduleLogic.periodForTime("09:30", "2026-10-10") == 2 &&
+                ScheduleLogic.periodForTime("10:30", "2026-10-10") == 3 &&
+                ScheduleLogic.periodForTime("10:40", "2026-10-10") == 4 &&
                 ScheduleLogic.periodForTime("23:00", "2026-10-10") == 12
         }
         check("课程行·竖线") {
@@ -133,6 +139,101 @@ object SelfCheck {
                 .put("date", "2026-10-01")
                 .put("start_time", "19:00")
             AgentEngine.describe(a).contains("录入活动「讲座」")
+        }
+        check("备份 JSON") {
+            val j = CourseStore.backupJson(
+                emptyList(),
+                listOf(Activity(title = "讲座", date = "2026-10-01", startTime = "19:00", endTime = "20:00"))
+            )
+            val acts = j.optJSONArray("activities")
+            j.optInt("version") == 2 &&
+                j.optJSONArray("courses")?.length() == 0 &&
+                acts?.length() == 1 &&
+                acts.optJSONObject(0)?.optString("title") == "讲座"
+        }
+        check("外网时段") {
+            !AuthStore.wanBlockedHour(8) && AuthStore.wanBlockedHour(9) &&
+                AuthStore.wanBlockedHour(17) && !AuthStore.wanBlockedHour(18) &&
+                AuthStore.wanBlockedHour(0) == false
+        }
+        check("教务登录编码") {
+            // 正方 encodeInp：base64(学号) + "%%%" + base64(密码)；"2026010101" / "abc123"
+            val enc = JwxtClient.encodeLogin("2026010101", "abc123")
+            JwxtClient.b64("abc") == "YWJj" &&
+                JwxtClient.b64("").isEmpty() &&
+                enc == "MjAyNjAxMDEwMQ==%%%YWJjMTIz" &&
+                enc.split("%%%").size == 2 &&
+                !enc.contains("\n")
+        }
+        check("教务课表解析") {
+            val html = """
+                <table id="kbtable">
+                  <tr><th>节次</th><th>星期一</th><th>星期二</th><th>星期三</th><th>星期四</th><th>星期五</th></tr>
+                  <tr><td>第1节</td>
+                      <td><div>高等数学A(一)<br/>1-16周<br/>格物楼101<br/>张老师</div></td>
+                      <td></td><td></td><td></td><td></td></tr>
+                  <tr><td>第3节</td>
+                      <td></td>
+                      <td><div>大学英语(一)<br/>1-8周<br/>博学楼205</div></td>
+                      <td></td><td></td><td></td></tr>
+                </table>
+            """.trimIndent()
+            val list = JwxtClient.parseTimetable(html)
+            val a = list.firstOrNull { it.name.startsWith("高等数学") }
+            val b = list.firstOrNull { it.name.startsWith("大学英语") }
+            list.size == 2 &&
+                a?.weekday == 1 && a.startPeriod == 1 && a.location.contains("格物") &&
+                a.weeks.contains("1") &&
+                b?.weekday == 2 && b.startPeriod == 3 &&
+                list.all { it.source == "jwxt" }
+        }
+        check("教务原文保留") {
+            val html = """
+                <table id="kbtable">
+                  <tr><th>节次</th><th>星期一</th><th>星期二</th></tr>
+                  <tr><td>第1节</td>
+                      <td><div>高等数学A(一)<br/>(1-2节)1-16周<br/>格物楼101<br/>张老师</div></td>
+                      <td></td></tr>
+                </table>
+            """.trimIndent()
+            val c = JwxtClient.parseTimetable(html).firstOrNull()
+            c != null && c.raw.contains("格物楼101") &&
+                c.raw.contains("高等数学A(一)") &&
+                c.weekText.contains("周") &&
+                c.periodText.contains("节")
+        }
+        check("考试解析") {
+            val html = """
+                <table>
+                  <tr><th>课程名称</th><th>考试时间</th><th>考试地点</th><th>座位号</th></tr>
+                  <tr><td>高等数学A(一)</td><td>2027-01-08 09:00</td><td>博学楼305</td><td>12</td></tr>
+                </table>
+            """.trimIndent()
+            val e = JwxtClient.parseExams(html)
+            e.size == 1 && e[0].course.startsWith("高等数学") &&
+                e[0].time.contains("2027-01-08") && e[0].location.contains("博学") &&
+                e[0].seat == "12" && e[0].raw.contains("博学楼305")
+        }
+        check("成绩解析") {
+            val html = """
+                <table>
+                  <tr><th>学期</th><th>课程名称</th><th>学分</th><th>总成绩</th><th>绩点</th></tr>
+                  <tr><td>2026-2027-1</td><td>高等数学A(一)</td><td>5</td><td>88</td><td>3.8</td></tr>
+                </table>
+            """.trimIndent()
+            val g = JwxtClient.parseGrades(html)
+            g.size == 1 && g[0].term.contains("2026") && g[0].course.startsWith("高等数学") &&
+                g[0].credit == "5" && g[0].score == "88" && g[0].gpa == "3.8"
+        }
+        check("学生信息解析") {
+            val html = "<td>姓名：张三</td><td>学号：2026010101</td><td>学院：电气与智能制造学院</td>"
+            val p = JwxtClient.parseProfile(html)
+            p.name == "张三" && p.sid == "2026010101" && p.college.contains("电气")
+        }
+        check("活动冲突三选一语义") {
+            com.campus.arnav.ui.ActivityRecord.KEEP_OLD == 0 &&
+                com.campus.arnav.ui.ActivityRecord.NEW_ONLY == 1 &&
+                com.campus.arnav.ui.ActivityRecord.BOTH == 2
         }
         return out
     }

@@ -64,8 +64,8 @@ object NoticeExtractor {
         return parse(cleanJson(content))
     }
 
-    /** 读取图片并缩到最长边 1600px、JPEG 85，避免 base64 过大导致接口拒绝。 */
-    fun loadImageBase64(ctx: Context, uri: Uri): String {
+    /** 读取图片并缩到最长边 1600px，供 OCR 与 base64 共用。 */
+    fun loadBitmap(ctx: Context, uri: Uri): Bitmap {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         var sample = 1
@@ -75,13 +75,19 @@ object NoticeExtractor {
             ?: throw IllegalStateException("读不到图片")
         val w = decoded.width
         val h = decoded.height
-        val scaled: Bitmap = if (w > 1600 || h > 1600) {
+        return if (w > 1600 || h > 1600) {
             val ratio = 1600f / maxOf(w, h)
-            Bitmap.createScaledBitmap(decoded, (w * ratio).toInt(), (h * ratio).toInt(), true)
+            val scaled = Bitmap.createScaledBitmap(decoded, (w * ratio).toInt(), (h * ratio).toInt(), true)
+            if (scaled !== decoded) decoded.recycle()
+            scaled
         } else decoded
+    }
+
+    /** 读取图片并缩到最长边 1600px、JPEG 85，避免 base64 过大导致接口拒绝。 */
+    fun loadImageBase64(ctx: Context, uri: Uri): String {
+        val scaled = loadBitmap(ctx, uri)
         val out = java.io.ByteArrayOutputStream()
         scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
-        if (scaled !== decoded) decoded.recycle()
         scaled.recycle()
         return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     }

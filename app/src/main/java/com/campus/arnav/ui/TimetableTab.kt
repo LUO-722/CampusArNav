@@ -16,8 +16,6 @@ import com.campus.arnav.R
 import com.campus.arnav.data.Course
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.ScheduleLogic
-import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * ① 课程表：本周网格 + 今日活动 + 导入入口。
@@ -105,6 +103,9 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         ops2.addView(button(ctx, "导出 / 分享", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
             setOnClickListener { exportShare() }
         }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f))
+        ops2.addView(button(ctx, "＋活动", ctx.color(R.color.bg_card), ctx.color(R.color.accent)).apply {
+            setOnClickListener { addActivity() }
+        }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f).apply { leftMargin = ctx.dp(6) })
         ops2.addView(button(ctx, "清空", ctx.color(R.color.bg_card), ctx.color(R.color.text_secondary)).apply {
             setOnClickListener {
                 confirm(ctx, "清空课程表", "会删除全部课程与跳课记录，活动保留。") {
@@ -129,6 +130,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         addView(upcomingBox)
 
         grid.onCourseTap = { showCourse(it) }
+        grid.onActivityTap = { showActivity(it) }
         shownWeek = ScheduleLogic.currentWeek()
         refresh()
     }
@@ -145,8 +147,15 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         val skips = HashSet<Long>()
         for (wd in 1..7) skips.addAll(CourseStore.skipsFor(ctx, ScheduleLogic.dateOf(shownWeek, wd)))
         grid.skips = skips
+        // 本周活动也画进课表格子（虚线块）
+        val weekStart = ScheduleLogic.dateOf(shownWeek, 1)
+        val weekEnd = ScheduleLogic.dateOf(shownWeek, 7)
+        grid.activities = CourseStore.activities(ctx)
+            .filter { it.date >= weekStart && it.date <= weekEnd }
+            .sortedBy { it.date + it.startTime }
+        // 节次时间用知识库《作息时间与门禁》的科文作息：8:15 开始、全年一套，不分冬夏
         weekLabel.text = ScheduleLogic.weekLabel(shownWeek)
-        subTitle.text = "${ScheduleLogic.semesterName()} · ${ScheduleLogic.totalWeeks()} 周 · 本周第 ${ScheduleLogic.currentWeek()} 周"
+        subTitle.text = "${ScheduleLogic.semesterName()} · ${ScheduleLogic.totalWeeks()} 周 · 本周第 ${ScheduleLogic.currentWeek()} 周 · 科文作息 8:15—20:40"
 
         todayBox.removeAllViews()
         val today = CourseStore.today()
@@ -207,9 +216,16 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
             if (c.teacher.isNotBlank()) append("教师：${c.teacher}\n")
             if (c.location.isNotBlank()) append("地点：${c.location}\n")
             append("时间：周${ScheduleLogic.weekdayName(c.weekday)} 第 ${c.startPeriod}-${c.endPeriod} 节\n")
-            append("节次：${ScheduleLogic.periodTime(c.startPeriod, ScheduleLogic.dateOf(wk, c.weekday))} - ${ScheduleLogic.periodTime(c.endPeriod, ScheduleLogic.dateOf(wk, c.weekday))}\n")
+            val date = ScheduleLogic.dateOf(wk, c.weekday)
+            val start = ScheduleLogic.periodTime(c.startPeriod, date).substringBefore('-')
+            val end = ScheduleLogic.periodTime(c.endPeriod, date).substringAfter('-')
+            append("节次：$start - $end\n")
             append("周次：${c.weeks}\n")
             append("来源：${c.source}")
+            if (c.raw.isNotBlank()) {
+                append("\n\n教务原文：\n")
+                append(c.raw)
+            }
         }
         AlertDialog.Builder(ctx)
             .setTitle("课程详情")
@@ -269,7 +285,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                     location = v.getOrNull(2).orEmpty(),
                     weekday = wd, startPeriod = st, endPeriod = en, weeks = weeks
                 )
-                ctx.toast("已添加课程")
+                warnConflict(wd, st, en, null, "已添加课程")
             } else {
                 CourseStore.updateCourse(
                     ctx, c.id, name,
@@ -277,9 +293,75 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                     location = v.getOrNull(2).orEmpty(),
                     weekday = wd, startPeriod = st, endPeriod = en, weeks = weeks
                 )
-                ctx.toast("已保存修改")
+                warnConflict(wd, st, en, c.id, "已保存修改")
             }
             refresh()
+        }
+    }
+
+    /** 保存后提示与其它课程同周几同节次的时间重叠。 */
+    private fun warnConflict(wd: Int, st: Int, en: Int, excludeId: Long?, okText: String) {
+        val clash = CourseStore.courses(ctx).firstOrNull {
+            it.id != excludeId && it.weekday == wd && it.startPeriod <= en && it.endPeriod >= st
+        }
+        if (clash != null) {
+            ctx.toast("$okText；注意「${clash.name}」也在周${arrayOf("", "一", "二", "三", "四", "五", "六", "日")[wd]} 第${clash.startPeriod}-${clash.endPeriod}节")
+        } else {
+            ctx.toast(okText)
+        }
+    }
+
+    /** 课表里直接录一个活动（写进本周格子）；与课程/活动撞时间就弹三选一。 */
+    private fun addActivity() {
+        val today = CourseStore.today()
+        inputForm(
+            ctx, "录入活动（直接进课表）",
+            listOf(
+                "标题" to "",
+                "日期（yyyy-MM-dd）" to today,
+                "开始（HH:mm）" to "",
+                "结束（HH:mm）" to "",
+                "地点" to "",
+                "备注" to ""
+            ),
+            multiline = false
+        ) { v ->
+            val title = v.getOrNull(0).orEmpty().trim().ifBlank { "未命名活动" }
+            val rawDate = v.getOrNull(1).orEmpty().trim()
+            val st = v.getOrNull(2).orEmpty().trim()
+            val en = v.getOrNull(3).orEmpty().trim()
+            val parsed = ScheduleLogic.parseDate(rawDate)
+            if (parsed == null) {
+                ctx.toast("日期格式应为 yyyy-MM-dd")
+                return@inputForm
+            }
+            if (!validTime(st) || !validTime(en)) {
+                ctx.toast("时间格式应为 HH:mm")
+                return@inputForm
+            }
+            if (st.isNotBlank() && en.isNotBlank() && ScheduleLogic.toMinutes(en) <= ScheduleLogic.toMinutes(st)) {
+                ctx.toast("结束时间要晚于开始时间")
+                return@inputForm
+            }
+            val draft = com.campus.arnav.data.ActivityDraft(
+                title = title,
+                date = ScheduleLogic.formatDate(parsed),
+                startTime = st,
+                endTime = en,
+                location = v.getOrNull(4).orEmpty().trim(),
+                organizer = "",
+                note = v.getOrNull(5).orEmpty().trim()
+            )
+            ActivityRecord.record(ctx, draft, source = "manual") { r ->
+                refresh()
+                ctx.toast(
+                    when (r) {
+                        ActivityRecord.KEEP_OLD -> "已保留原课程表日程，新活动没有录入"
+                        ActivityRecord.NEW_ONLY -> "已只保存最新日程（冲突课程当天停课）"
+                        else -> "已录入课表"
+                    }
+                )
+            }
         }
     }
 
@@ -294,12 +376,52 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                 }
             )
             .setPositiveButton("编辑") { _, _ -> editActivity(a) }
-            .setNeutralButton("删除") { _, _ ->
+            .setNeutralButton("加入日历") { _, _ -> addToCalendar(a) }
+            .setNegativeButton("删除") { _, _ ->
                 CourseStore.deleteActivity(ctx, a.id)
                 refresh()
             }
-            .setNegativeButton("关闭", null)
             .show()
+    }
+
+    /** 把活动写入系统日历：不申请权限，唤起日历 App 的“新建事件”界面由用户确认。 */
+    private fun addToCalendar(a: com.campus.arnav.data.Activity) {
+        val begin = eventMillis(a.date, a.startTime)
+        val end = eventMillis(a.date, a.endTime)
+        if (begin == null || end == null) {
+            ctx.toast("活动日期或时间格式不对，无法加入日历")
+            return
+        }
+        val intent = Intent(Intent.ACTION_INSERT).apply {
+            data = android.provider.CalendarContract.Events.CONTENT_URI
+            putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, begin)
+            putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME, end)
+            putExtra(android.provider.CalendarContract.EXTRA_EVENT_ALL_DAY, false)
+            putExtra(android.provider.CalendarContract.Events.TITLE, a.title)
+            putExtra(android.provider.CalendarContract.Events.EVENT_LOCATION, a.location)
+            putExtra(android.provider.CalendarContract.Events.DESCRIPTION, a.note)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            ctx.startActivity(intent)
+        } catch (e: Exception) {
+            ctx.toast("没有找到可用的日历应用")
+        }
+    }
+
+    private fun eventMillis(date: String, time: String): Long? {
+        val d = ScheduleLogic.parseDate(date) ?: return null
+        val hm = time.split(":")
+        val h = hm.getOrNull(0)?.toIntOrNull() ?: return null
+        val m = hm.getOrNull(1)?.toIntOrNull() ?: 0
+        if (h !in 0..23 || m !in 0..59) return null
+        return java.util.Calendar.getInstance().apply {
+            this.time = d
+            set(java.util.Calendar.HOUR_OF_DAY, h)
+            set(java.util.Calendar.MINUTE, m)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
     }
 
     private fun editActivity(a: com.campus.arnav.data.Activity) {
@@ -335,7 +457,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                 organizer = "",
                 note = v.getOrNull(5).orEmpty().trim()
             )
-            CourseStore.updateActivity(ctx, a.id, draft, hasConflict(date, st, en))
+            CourseStore.updateActivity(ctx, a.id, draft, ActivityRecord.hasClash(ctx, date, st, en, excludeId = a.id))
             refresh()
             ctx.toast("已保存修改")
         }
@@ -365,39 +487,21 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         }
     }
 
-    /** 导出当前课表为 JSON（可再粘贴回「导入课表 → JSON」），走系统分享面板。 */
+    /** 导出当前课表 + 活动为 JSON（可再粘贴回「导入课表 → JSON」），走系统分享面板。 */
     private fun exportShare() {
         val courses = CourseStore.courses(ctx)
-        if (courses.isEmpty()) {
-            ctx.toast("课表是空的，没有可导出的课程")
+        val acts = CourseStore.activities(ctx)
+        if (courses.isEmpty() && acts.isEmpty()) {
+            ctx.toast("课表和活动都是空的，没有可导出的数据")
             return
         }
-        val arr = JSONArray()
-        for (c in courses) {
-            arr.put(JSONObject().apply {
-                put("name", c.name)
-                put("teacher", c.teacher)
-                put("location", c.location)
-                put("weekday", c.weekday)
-                put("start", c.startPeriod)
-                put("end", c.endPeriod)
-                put("weeks", c.weeks)
-            })
-        }
-        val root = JSONObject().apply {
-            put("app", "科文智嘉")
-            put("version", 1)
-            put("semesterName", ScheduleLogic.semesterName())
-            put("semesterStart", ScheduleLogic.semesterStartText())
-            put("totalWeeks", ScheduleLogic.totalWeeks())
-            put("courses", arr)
-        }
+        val root = CourseStore.backupJson(courses, acts)
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, "科文智嘉课表备份")
             putExtra(Intent.EXTRA_TEXT, root.toString(2))
         }
-        ctx.startActivity(Intent.createChooser(send, "导出 / 分享课表"))
+        ctx.startActivity(Intent.createChooser(send, "导出 / 分享课表与活动"))
     }
 
     private fun importDialog() {
@@ -415,12 +519,17 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                 }
                 1 -> inputForm(
                     ctx, "粘贴 JSON",
-                    listOf("字段：name/weekday/start/end/weeks/location" to ""),
+                    listOf("字段：name/weekday/start/end/weeks/location；可含 activities" to ""),
                     multiline = true
                 ) { v ->
-                    val n = CourseStore.importJson(ctx, v.firstOrNull().orEmpty())
+                    val imp = CourseStore.importJson(ctx, v.firstOrNull().orEmpty())
                     refresh()
-                    ctx.toast(if (n >= 0) "已导入 $n 门课程" else "JSON 格式不对")
+                    when {
+                        imp.courses < 0 -> ctx.toast("JSON 格式不对，检查是否完整复制")
+                        imp.courses == 0 && imp.activities == 0 ->
+                            ctx.toast("没有可导入的课程或活动")
+                        else -> ctx.toast("已导入 ${imp.courses} 门课程、${imp.activities} 个活动")
+                    }
                 }
             }
         }

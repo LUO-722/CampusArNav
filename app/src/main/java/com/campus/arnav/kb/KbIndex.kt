@@ -148,6 +148,12 @@ object KbIndex {
         return out
     }
 
+    /** 知识库篇数（按 path 去重），个人页统计用。 */
+    fun docCount(ctx: Context): Int {
+        ensureLoaded(ctx)
+        return chunks.map { it.path }.distinct().size
+    }
+
     /** 检索质量自检：返回命中数。 */
     fun selfCheck(ctx: Context): String {
         ensureLoaded(ctx)

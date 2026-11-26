@@ -15,6 +15,7 @@ import com.campus.arnav.data.ActivityDraft
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.ScheduleLogic
 import com.campus.arnav.net.WebPage
+import com.campus.arnav.ocr.LocalOcr
 
 /**
  * ② 智嘉：粘贴文字 / 选图片 / 贴链接 → 抽活动 → 检查冲突 → 录进课表。
@@ -35,9 +36,10 @@ class ZhijiaTab(
     private val draftBox = LinearLayout(ctx)
     private val drafts = ArrayList<ActivityDraft>()
     private val checked = ArrayList<Boolean>()
-    private val saveBtn = button(ctx, "录入选中活动", ctx.color(R.color.accent), Color.parseColor("#0E1116"))
-    private val extractBtn = button(ctx, "让智嘉提取活动", ctx.color(R.color.accent), Color.parseColor("#0E1116"))
+    private val saveBtn = button(ctx, "录入选中活动", ctx.color(R.color.accent), Color.parseColor("#1A120C"))
+    private val extractBtn = button(ctx, "让智嘉提取活动", ctx.color(R.color.accent), Color.parseColor("#1A120C"))
     private var extracting = false
+    private var ocrBusy = false
 
     init {
         orientation = VERTICAL
@@ -106,7 +108,7 @@ class ZhijiaTab(
         mode = m
         for ((i, b) in modeButtons.withIndex()) {
             val on = i == m
-            b.setTextColor(if (on) Color.parseColor("#0E1116") else ctx.color(R.color.text_secondary))
+            b.setTextColor(if (on) Color.parseColor("#1A120C") else ctx.color(R.color.text_secondary))
             b.background = rounded(ctx, if (on) ctx.color(R.color.accent) else ctx.color(R.color.bg_card), 12)
         }
         input.visibility = if (m == 1) GONE else VISIBLE
@@ -138,6 +140,32 @@ class ZhijiaTab(
         imageLabel.text = "已选：$name"
         imageLabel.setTextColor(ctx.color(R.color.accent))
         setMode(1)
+        // 选完图立刻用本机 ML Kit OCR 识字；图片不上传、不需要 VL Key
+        ocrBusy = true
+        status.text = "已选图片，正在用本机 OCR 识别文字（离线，不上传）…"
+        status.setTextColor(ctx.color(R.color.text_secondary))
+        Thread {
+            try {
+                val text = LocalOcr.recognizeLines(ctx, uri)
+                post {
+                    ocrBusy = false
+                    if (text.isBlank()) {
+                        status.text = "本机识字结果为空：图片可能太模糊，试试重新截图或裁剪后再试。"
+                    } else {
+                        setMode(0)
+                        input.setText(text)
+                        status.text = "本机已识别 ${text.length} 字（图片未上传），可先修改文字，再点「让智嘉提取活动」"
+                        status.setTextColor(ctx.color(R.color.accent))
+                        ctx.toast("已本机识别文字，图片未上传")
+                    }
+                }
+            } catch (e: Exception) {
+                post {
+                    ocrBusy = false
+                    status.text = "本机识字失败：${e.message}"
+                }
+            }
+        }.start()
     }
 
     private fun extract() {
@@ -147,18 +175,26 @@ class ZhijiaTab(
         }
         if (mode == 1) {
             val uri = imageUri ?: run { ctx.toast("先选一张通知截图"); return }
+            if (ocrBusy) {
+                ctx.toast("正在本机识字，请稍等…")
+                return
+            }
             extracting = true
             extractBtn.isEnabled = false
             extractBtn.text = "提取中…"
-            status.text = "正在用通义 VL 识图…"
+            status.text = "正在本机识字，再用 DeepSeek 提取活动（图片不上传）…"
             status.setTextColor(ctx.color(R.color.text_secondary))
             Thread {
                 try {
-                    val b64 = NoticeExtractor.loadImageBase64(ctx, uri)
-                    val out = NoticeExtractor.extractImage(ctx, b64, "image/jpeg")
+                    val text = LocalOcr.recognizeLines(ctx, uri)
+                    if (text.isBlank()) {
+                        post { doneExtract(); status.text = "本机识字结果为空，无法提取活动。" }
+                        return@Thread
+                    }
+                    val out = NoticeExtractor.extractText(ctx, text)
                     post { doneExtract(); showDrafts(out) }
                 } catch (e: Exception) {
-                    post { doneExtract(); status.text = "识图失败：${e.message}" }
+                    post { doneExtract(); status.text = "提取失败：${e.message}" }
                 }
             }.start()
         } else {
@@ -349,35 +385,14 @@ class ZhijiaTab(
             saveQueue(list, idx + 1, stat)
             return
         }
-        val conflicts = if (st.isNotBlank() && en.isNotBlank()) {
-            ScheduleLogic.conflicts(CourseStore.courses(ctx), CourseStore.skipsFor(ctx, date), date, st, en)
-        } else emptyList()
-        if (conflicts.isEmpty()) {
-            CourseStore.addActivity(ctx, nd, conflict = false, source = "zhijia")
-            stat[0]++
+        // 录进课表：无冲突直接落库；有冲突弹「两个同时录入 / 保留原课程表日程 / 只保存最新日程」
+        ActivityRecord.record(ctx, nd, source = "zhijia") { r ->
+            when (r) {
+                ActivityRecord.KEEP_OLD -> stat[1]++
+                ActivityRecord.NEW_ONLY -> stat[2]++
+                else -> stat[0]++
+            }
             saveQueue(list, idx + 1, stat)
-            return
         }
-        val names = conflicts.joinToString("、") { it.name }
-        AlertDialog.Builder(ctx)
-            .setTitle("时间冲突：${nd.title}")
-            .setMessage("$date ${nd.startTime}-${nd.endTime} 与「$names」重叠。怎么处理？")
-            .setPositiveButton("都保留") { _, _ ->
-                CourseStore.addActivity(ctx, nd, conflict = true, source = "zhijia")
-                stat[0]++
-                saveQueue(list, idx + 1, stat)
-            }
-            .setNeutralButton("只保留原安排") { _, _ ->
-                stat[1]++
-                saveQueue(list, idx + 1, stat)
-            }
-            .setNegativeButton("只录入新安排") { _, _ ->
-                for (c in conflicts) CourseStore.skipCourseOn(ctx, c.id, date)
-                CourseStore.addActivity(ctx, nd, conflict = false, source = "zhijia")
-                stat[2]++
-                saveQueue(list, idx + 1, stat)
-            }
-            .setCancelable(false)
-            .show()
     }
 }

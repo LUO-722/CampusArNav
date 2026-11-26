@@ -13,13 +13,13 @@ import android.widget.TextView
 import com.campus.arnav.R
 import com.campus.arnav.agent.ActionExecutor
 import com.campus.arnav.agent.AgentEngine
-import com.campus.arnav.agent.NoticeExtractor
 import com.campus.arnav.data.ChatMsg
 import com.campus.arnav.data.ChatStore
 import com.campus.arnav.data.SettingsStore
+import com.campus.arnav.ocr.LocalOcr
 
 /**
- * ④ 聊天：知识库问答 + Agent 决策（录活动/加课/闹钟/导航建议）；可发图片给通义 VL 识图。
+ * ④ 聊天：知识库问答 + Agent 决策（录活动/加课/闹钟/导航建议）；图片先本机 OCR 识文字再提问。
  */
 class ChatTab(
     private val ctx: Context,
@@ -51,15 +51,13 @@ class ChatTab(
         titleBox.addView(textView(ctx, "智嘉 · 对话", 18f, ctx.color(R.color.text_primary), bold = true))
         titleBox.addView(modelLabel)
         modelLabel.setOnClickListener {
-            choose(ctx, "聊天用哪个模型", listOf(
+            choose(ctx, "聊天模型", listOf(
                 "DeepSeek 文本（快、便宜）",
-                "通义 VL（可发图识图）",
                 "打开设置填 Key"
             )) { which ->
                 when (which) {
                     0 -> { SettingsStore.setChatUseVision(ctx, false); refreshProvider() }
-                    1 -> { SettingsStore.setChatUseVision(ctx, true); refreshProvider() }
-                    2 -> onOpenSettings()
+                    1 -> onOpenSettings()
                 }
             }
         }
@@ -98,7 +96,7 @@ class ChatTab(
             setOnClickListener { pickImage() }
         }, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(42)).apply { rightMargin = ctx.dp(6) })
         row.addView(input, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        row.addView(button(ctx, "发送", ctx.color(R.color.accent), Color.parseColor("#0E1116")).apply {
+        row.addView(button(ctx, "发送", ctx.color(R.color.accent), Color.parseColor("#1A120C")).apply {
             setOnClickListener { send() }
         }, LinearLayout.LayoutParams(ctx.dp(64), ctx.dp(42)).apply { leftMargin = ctx.dp(6) })
         addView(row)
@@ -119,7 +117,7 @@ class ChatTab(
     fun refreshProvider() {
         val p = SettingsStore.chatProvider(ctx)
         modelLabel.text = if (p.ready()) {
-            "模型：${p.model}" + if (SettingsStore.chatUseVision(ctx)) "（VL 模型，可发图）" else ""
+            "模型：${p.model}（文本）"
         } else {
             "未配置 API Key，点左上角 ☰ 设置"
         }
@@ -130,31 +128,28 @@ class ChatTab(
             ctx.toast("正在回复，稍等再发图")
             return
         }
-        if (!SettingsStore.vision(ctx).ready()) {
-            ctx.toast("识图需要先在「设置」里填写通义 VL 的 Key")
-            return
-        }
+        // 图片走本机 ML Kit OCR：离线、不上传、不需要任何 Key
         onPickImage()
     }
 
-    /** MainShell 的图片选择器回调。 */
+    /** MainShell 的图片选择器回调：先本机识文字，填进输入框，用户确认后再发送。 */
     fun onImagePicked(uri: Uri?) {
         if (uri == null || sending) return
-        val text = input.text.toString().trim().ifBlank {
-            "请识别这张图片里的通知，提取活动信息；如果有冲突请提醒我。"
-        }
-        input.setText("")
-        addBubble("[图片] $text", false)
-        history.add(ChatMsg("user", text))
-        ChatStore.append(ctx, "user", text)
-        sending = true
+        ctx.toast("正在本机识别图片文字（不上传）…")
         Thread {
             try {
-                val b64 = NoticeExtractor.loadImageBase64(ctx, uri)
-                val r = AgentEngine.askImage(ctx, history, text, b64)
-                post { complete(r) }
+                val text = LocalOcr.recognizeLines(ctx, uri)
+                post {
+                    if (text.isBlank()) {
+                        ctx.toast("图片里没认出文字，试试换一张清晰点的截图")
+                    } else {
+                        input.setText(text)
+                        input.setSelection(text.length)
+                        ctx.toast("本机已识别 ${text.length} 字（图片未上传），确认后点「发送」")
+                    }
+                }
             } catch (e: Exception) {
-                post { fail("识图失败：${e.message}") }
+                post { ctx.toast("本机识字失败：${e.message}") }
             }
         }.start()
     }
@@ -229,7 +224,7 @@ class ChatTab(
             this.text = if (assistant) plain(text) else text
             textSize = 14f
             maxWidth = resources.displayMetrics.widthPixels - ctx.dp(64)
-            setTextColor(if (assistant) ctx.color(R.color.text_primary) else Color.parseColor("#0E1116"))
+            setTextColor(if (assistant) ctx.color(R.color.text_primary) else Color.parseColor("#1A120C"))
             setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), ctx.dp(10))
             background = rounded(ctx, if (assistant) ctx.color(R.color.bg_card) else ctx.color(R.color.accent), 14)
             setTextIsSelectable(true)

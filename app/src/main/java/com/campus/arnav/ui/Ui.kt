@@ -159,6 +159,6 @@ fun kvRow(ctx: Context, k: String, v: String): LinearLayout = LinearLayout(ctx).
 }
 
 fun divider(ctx: Context): View = View(ctx).apply {
-    setBackgroundColor(Color.parseColor("#263040"))
+    setBackgroundColor(Color.parseColor("#3D2C20"))
     layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(1))
 }

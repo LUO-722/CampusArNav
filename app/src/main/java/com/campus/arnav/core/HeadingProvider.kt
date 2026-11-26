@@ -16,6 +16,8 @@ import kotlin.math.sin
  *  1. 优先用 ROTATION_VECTOR（已经内部融合了加速度计 + 磁力计 + 陀螺仪）
  *  2. 退而求其次用 ACCELEROMETER + MAGNETIC_FIELD 手工算
  *  3. 用「向量低通」而不是「角度低通」平滑，避免 359°/0° 跳变
+ *  4. 朝向取「相机轴（设备 -Z）在水平面的投影」，而不是 getOrientation 的 azimuth ——
+ *     竖握做 AR 时 azimuth 会退化（R[1]、R[4] 同时趋近 0），箭头方向会乱飘。
  */
 class HeadingProvider(context: Context) : SensorEventListener {
 
@@ -29,7 +31,6 @@ class HeadingProvider(context: Context) : SensorEventListener {
     private val magSensor = sm.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
     private val rotationMatrix = FloatArray(9)
-    private val orientation = FloatArray(3)
     private val gravity = FloatArray(3)
     private val geomagnetic = FloatArray(3)
 
@@ -78,8 +79,7 @@ class HeadingProvider(context: Context) : SensorEventListener {
                 SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
                 System.arraycopy(rotationMatrix, 0, pose, 0, 9)
                 poseReady = true
-                SensorManager.getOrientation(rotationMatrix, orientation)
-                applyRaw(Math.toDegrees(orientation[0].toDouble()))
+                applyRaw(GeoUtils.cameraHeadingDeg(pose))
                 accuracyDeg = if (event.accuracy >= SensorManager.SENSOR_STATUS_ACCURACY_HIGH) 8f else 18f
             }
             Sensor.TYPE_ACCELEROMETER -> {
@@ -117,8 +117,7 @@ class HeadingProvider(context: Context) : SensorEventListener {
         if (!SensorManager.getRotationMatrix(rotationMatrix, null, gravity, geomagnetic)) return
         System.arraycopy(rotationMatrix, 0, pose, 0, 9)
         poseReady = true
-        SensorManager.getOrientation(rotationMatrix, orientation)
-        applyRaw(Math.toDegrees(orientation[0].toDouble()))
+        applyRaw(GeoUtils.cameraHeadingDeg(pose))
     }
 
     private fun applyRaw(deg: Double) {

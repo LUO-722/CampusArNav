@@ -11,8 +11,8 @@ android {
         applicationId "com.campus.arnav"
         minSdk 24
         targetSdk 36
-        versionCode 12
-        versionName "0.3.0"
+        versionCode 23
+        versionName "0.7.0"
     }
 
     buildTypes {
@@ -40,4 +40,7 @@ dependencies {
     implementation "androidx.camera:camera-camera2:$camerax"
     implementation "androidx.camera:camera-lifecycle:$camerax"
     implementation "androidx.camera:camera-view:$camerax"
+
+    // 本机离线 OCR：ML Kit 中文文字识别（模型随 APK 打包，不联网、不上传图片、无需 Key）
+    implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
 }

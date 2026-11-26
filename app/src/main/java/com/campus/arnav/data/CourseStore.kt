@@ -14,13 +14,17 @@ import java.util.Locale
  */
 object CourseStore {
 
+    /** 暖色系课程配色：琥珀 / 赤陶 / 赭石 / 暖橄榄 / 陶土粉 / 蜜糖 / 焦糖 / 暖棕。 */
     private val palette = intArrayOf(
-        0xFF1F6F5C.toInt(), 0xFF2D5F8B.toInt(), 0xFF7A4E9E.toInt(),
-        0xFF9A5B2E.toInt(), 0xFF8B3A52.toInt(), 0xFF3E7C3E.toInt(),
-        0xFF6B6B2E.toInt(), 0xFF2E6B75.toInt()
+        0xFFB5642A.toInt(), 0xFFA34A2E.toInt(), 0xFF8C6A2F.toInt(),
+        0xFF6E7A3A.toInt(), 0xFF9E4B5C.toInt(), 0xFFC98A3C.toInt(),
+        0xFF7A5636.toInt(), 0xFFB0763A.toInt()
     )
 
     private fun db(ctx: Context) = AppDb.get(ctx).writableDatabase
+
+    /** 给导入的课程安排配色：按序号轮流取调色板。 */
+    fun colorAt(index: Int): Int = palette[((index % palette.size) + palette.size) % palette.size]
 
     fun courses(ctx: Context): List<Course> {
         val out = ArrayList<Course>()
@@ -40,7 +44,10 @@ object CourseStore {
         endPeriod = c.getInt(c.getColumnIndexOrThrow("end_period")),
         weeks = c.getString(c.getColumnIndexOrThrow("weeks")) ?: "1-16",
         color = c.getInt(c.getColumnIndexOrThrow("color")),
-        source = c.getString(c.getColumnIndexOrThrow("source")) ?: "manual"
+        source = c.getString(c.getColumnIndexOrThrow("source")) ?: "manual",
+        raw = c.getString(c.getColumnIndexOrThrow("raw")) ?: "",
+        periodText = c.getString(c.getColumnIndexOrThrow("period_text")) ?: "",
+        weekText = c.getString(c.getColumnIndexOrThrow("week_text")) ?: ""
     )
 
     fun addCourse(
@@ -65,6 +72,25 @@ object CourseStore {
             put("weeks", weeks)
             put("color", color)
             put("source", source)
+        }
+        return db(ctx).insert("courses", null, v)
+    }
+
+    /** 按 Course 全字段写入（教务同步用，含单元格原文，一字不改地留着）。 */
+    fun addCourseFull(ctx: Context, c: Course, color: Int): Long {
+        val v = ContentValues().apply {
+            put("name", c.name)
+            put("teacher", c.teacher)
+            put("location", c.location)
+            put("weekday", c.weekday.coerceIn(1, 7))
+            put("start_period", c.startPeriod.coerceIn(1, 12))
+            put("end_period", c.endPeriod.coerceIn(c.startPeriod.coerceIn(1, 12), 12))
+            put("weeks", c.weeks.ifBlank { "1-16" })
+            put("color", color)
+            put("source", c.source)
+            put("raw", c.raw)
+            put("period_text", c.periodText)
+            put("week_text", c.weekText)
         }
         return db(ctx).insert("courses", null, v)
     }
@@ -224,36 +250,117 @@ object CourseStore {
      * 2) {"courses":[...]}
      * 字段兼容 name/course、weekday/day、start/start_period、end/end_period。
      */
-    fun importJson(ctx: Context, text: String): Int {
-        val arr: JSONArray = try {
-            val t = text.trim()
-            if (t.startsWith("{")) JSONObject(t).optJSONArray("courses") ?: JSONArray()
-            else JSONArray(t)
+    data class JsonImport(val courses: Int, val activities: Int)
+
+    fun importJson(ctx: Context, text: String): JsonImport {
+        val t = text.trim()
+        val coursesArr: JSONArray
+        val activitiesArr: JSONArray
+        try {
+            if (t.startsWith("{")) {
+                val root = JSONObject(t)
+                coursesArr = root.optJSONArray("courses") ?: JSONArray()
+                activitiesArr = root.optJSONArray("activities") ?: JSONArray()
+            } else {
+                coursesArr = JSONArray(t)
+                activitiesArr = JSONArray()
+            }
         } catch (e: Exception) {
-            return -1
+            return JsonImport(-1, 0)
         }
         var n = 0
-        for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
+        val seenCourses = courses(ctx).map { courseKey(it) }.toMutableSet()
+        for (i in 0 until coursesArr.length()) {
+            val o = coursesArr.optJSONObject(i) ?: continue
             val name = o.optString("name").ifBlank { o.optString("course") }
             if (name.isBlank()) continue
             val wd = o.optInt("weekday", o.optInt("day", 1)).coerceIn(1, 7)
             val st = o.optInt("start", o.optInt("start_period", 1)).coerceIn(1, 12)
             var en = o.optInt("end", o.optInt("end_period", st)).coerceIn(st, 12)
             if (en < st) en = st
+            val weeks = o.optString("weeks", "1-16").ifBlank { "1-16" }
+            val key = "$name|$wd|$st|$en|$weeks"
+            if (!seenCourses.add(key)) continue
             addCourse(
                 ctx, name,
                 teacher = o.optString("teacher"),
                 location = o.optString("location"),
                 weekday = wd, startPeriod = st, endPeriod = en,
-                weeks = o.optString("weeks", "1-16").ifBlank { "1-16" },
+                weeks = weeks,
                 color = palette[n % palette.size],
                 source = "import"
             )
             n++
         }
-        return n
+        var m = 0
+        val seenActs = activities(ctx).map { "${it.title}|${it.date}|${it.startTime}" }.toMutableSet()
+        for (i in 0 until activitiesArr.length()) {
+            val o = activitiesArr.optJSONObject(i) ?: continue
+            val title = o.optString("title").ifBlank { o.optString("name") }
+            if (title.isBlank()) continue
+            val date = ScheduleLogic.parseDate(o.optString("date")) ?: continue
+            val st = o.optString("start", o.optString("start_time"))
+            val en = o.optString("end", o.optString("end_time"))
+            if (!ScheduleLogic.validClock(st) || !ScheduleLogic.validClock(en) || en <= st) continue
+            val d = ScheduleLogic.formatDate(date)
+            if (!seenActs.add("$title|$d|$st")) continue
+            addActivity(
+                ctx,
+                ActivityDraft(
+                    title = title,
+                    date = d,
+                    startTime = st,
+                    endTime = en,
+                    location = o.optString("location"),
+                    organizer = o.optString("organizer"),
+                    note = o.optString("note")
+                ),
+                conflict = false,
+                source = "import"
+            )
+            m++
+        }
+        return JsonImport(n, m)
     }
+
+    /** 生成备份 JSON（纯函数，方便自检；导出/分享也用这一份，保证字段一致）。 */
+    fun backupJson(courses: List<Course>, acts: List<Activity>): JSONObject {
+        val arr = JSONArray()
+        for (c in courses) {
+            arr.put(JSONObject().apply {
+                put("name", c.name)
+                put("teacher", c.teacher)
+                put("location", c.location)
+                put("weekday", c.weekday)
+                put("start", c.startPeriod)
+                put("end", c.endPeriod)
+                put("weeks", c.weeks)
+            })
+        }
+        val actArr = JSONArray()
+        for (a in acts) {
+            actArr.put(JSONObject().apply {
+                put("title", a.title)
+                put("date", a.date)
+                put("start", a.startTime)
+                put("end", a.endTime)
+                put("location", a.location)
+                put("note", a.note)
+            })
+        }
+        return JSONObject().apply {
+            put("app", "科文智嘉")
+            put("version", 2)
+            put("semesterName", ScheduleLogic.semesterName())
+            put("semesterStart", ScheduleLogic.semesterStartText())
+            put("totalWeeks", ScheduleLogic.totalWeeks())
+            put("courses", arr)
+            put("activities", actArr)
+        }
+    }
+
+    private fun courseKey(c: Course) =
+        "${c.name}|${c.weekday}|${c.startPeriod}|${c.endPeriod}|${c.weeks}"
 
     /** 一行课程解析结果；不写数据库，方便离线自检。 */
     data class ParsedLine(
@@ -273,8 +380,11 @@ object CourseStore {
      */
     fun importLines(ctx: Context, text: String): Int {
         var n = 0
+        val seen = courses(ctx).map { courseKey(it) }.toMutableSet()
         for (line in text.split("\n", "；", ";")) {
             val parsed = parseCourseLine(line) ?: continue
+            val key = "${parsed.name}|${parsed.weekday}|${parsed.start}|${parsed.end}|${parsed.weeks}"
+            if (!seen.add(key)) continue
             addCourse(
                 ctx, parsed.name,
                 location = parsed.location,
@@ -285,6 +395,114 @@ object CourseStore {
             n++
         }
         return n
+    }
+
+    /** 用教务系统解析结果替换「上次导入」的课程，返回这次新导入的门数。 */
+    fun replaceJwxtCourses(ctx: Context, list: List<Course>): Int {
+        courses(ctx).filter { it.source == "jwxt" }.forEach { deleteCourse(ctx, it.id) }
+        val existing = courses(ctx)
+        var n = 0
+        for (c in list) {
+            val dup = existing.any {
+                it.name == c.name && it.weekday == c.weekday && it.startPeriod == c.startPeriod
+            }
+            if (dup) continue
+            addCourseFull(ctx, c.copy(source = "jwxt"), colorAt(n))
+            n++
+        }
+        return n
+    }
+
+    // ---- 教务：考试 / 成绩 ----
+
+    fun exams(ctx: Context): List<Exam> {
+        val out = ArrayList<Exam>()
+        db(ctx).query("exams", null, null, null, null, null, "_id").use { c ->
+            while (c.moveToNext()) {
+                out.add(
+                    Exam(
+                        id = c.getLong(c.getColumnIndexOrThrow("_id")),
+                        course = c.getString(c.getColumnIndexOrThrow("course")) ?: "",
+                        time = c.getString(c.getColumnIndexOrThrow("time")) ?: "",
+                        location = c.getString(c.getColumnIndexOrThrow("location")) ?: "",
+                        seat = c.getString(c.getColumnIndexOrThrow("seat")) ?: "",
+                        raw = c.getString(c.getColumnIndexOrThrow("raw")) ?: ""
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    /** 全量替换考试安排，返回写入条数。 */
+    fun replaceExams(ctx: Context, list: List<Exam>): Int {
+        val d = db(ctx)
+        d.beginTransaction()
+        try {
+            d.delete("exams", null, null)
+            for (e in list) {
+                d.insert(
+                    "exams", null,
+                    ContentValues().apply {
+                        put("course", e.course)
+                        put("time", e.time)
+                        put("location", e.location)
+                        put("seat", e.seat)
+                        put("raw", e.raw)
+                    }
+                )
+            }
+            d.setTransactionSuccessful()
+        } finally {
+            d.endTransaction()
+        }
+        return list.size
+    }
+
+    fun grades(ctx: Context): List<Grade> {
+        val out = ArrayList<Grade>()
+        db(ctx).query("grades", null, null, null, null, null, "_id").use { c ->
+            while (c.moveToNext()) {
+                out.add(
+                    Grade(
+                        id = c.getLong(c.getColumnIndexOrThrow("_id")),
+                        term = c.getString(c.getColumnIndexOrThrow("term")) ?: "",
+                        course = c.getString(c.getColumnIndexOrThrow("course")) ?: "",
+                        credit = c.getString(c.getColumnIndexOrThrow("credit")) ?: "",
+                        score = c.getString(c.getColumnIndexOrThrow("score")) ?: "",
+                        gpa = c.getString(c.getColumnIndexOrThrow("gpa")) ?: "",
+                        raw = c.getString(c.getColumnIndexOrThrow("raw")) ?: ""
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    /** 全量替换成绩单，返回写入条数。 */
+    fun replaceGrades(ctx: Context, list: List<Grade>): Int {
+        val d = db(ctx)
+        d.beginTransaction()
+        try {
+            d.delete("grades", null, null)
+            for (g in list) {
+                d.insert(
+                    "grades", null,
+                    ContentValues().apply {
+                        put("term", g.term)
+                        put("course", g.course)
+                        put("credit", g.credit)
+                        put("score", g.score)
+                        put("gpa", g.gpa)
+                        put("raw", g.raw)
+                    }
+                )
+            }
+            d.setTransactionSuccessful()
+        } finally {
+            d.endTransaction()
+        }
+        return list.size
     }
 
     /** 纯函数解析一行课程；无法识别时返回 null。 */

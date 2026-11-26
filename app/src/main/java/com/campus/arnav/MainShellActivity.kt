@@ -3,6 +3,7 @@ package com.campus.arnav
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -17,6 +18,7 @@ import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.ui.ChatTab
 import com.campus.arnav.ui.NavTab
+import com.campus.arnav.ui.ProfileTab
 import com.campus.arnav.ui.TimetableTab
 import com.campus.arnav.ui.ZhijiaTab
 import com.campus.arnav.ui.applySystemBarInsets
@@ -38,6 +40,7 @@ class MainShellActivity : AppCompatActivity() {
     private lateinit var zhijia: ZhijiaTab
     private lateinit var nav: NavTab
     private lateinit var chat: ChatTab
+    private lateinit var profile: ProfileTab
 
     private var current = 0
 
@@ -46,6 +49,7 @@ class MainShellActivity : AppCompatActivity() {
             SettingsStore.applySemester(this)
             timetable.refresh()
             chat.refreshProvider()
+            profile.refresh()
         }
 
     private val imageLauncher =
@@ -60,6 +64,7 @@ class MainShellActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.i("MainShell", "onCreate saved=" + (savedInstanceState != null) + " tabArg=" + (savedInstanceState?.getInt("tab", -1) ?: -1))
         SettingsStore.applySemester(this)
         CourseStore.seedDemoIfEmpty(this)
 
@@ -96,11 +101,23 @@ class MainShellActivity : AppCompatActivity() {
                 chatImageLauncher.launch(Intent.createChooser(i, "选择要识别的图片"))
             }
         )
+        profile = ProfileTab(
+            this,
+            onOpenSettings = { openSettings() },
+            onOpenTimetable = { switchTab(0) }
+        )
 
-        val labels = listOf("课程表" to "▦", "智嘉" to "✦", "导航" to "➤", "对话" to "✉")
+        val labels = listOf(
+            "课程表" to "▦",
+            "智嘉" to "✦",
+            "导航" to "➤",
+            "对话" to "✉",
+            "我的" to "☺"
+        )
         labels.forEachIndexed { i, (label, icon) ->
             val tv = TextView(this).apply {
                 text = "$icon\n$label"
+                contentDescription = label
                 gravity = Gravity.CENTER
                 textSize = 12f
                 setTextColor(color(R.color.text_secondary))
@@ -111,7 +128,7 @@ class MainShellActivity : AppCompatActivity() {
             navBar.addView(tv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
 
-        switchTab(0)
+        switchTab(savedInstanceState?.getInt("tab", 0)?.coerceIn(0, 4) ?: 0)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -123,16 +140,23 @@ class MainShellActivity : AppCompatActivity() {
         })
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt("tab", current)
+    }
+
     private fun switchTab(i: Int) {
+        Log.i("MainShell", "switchTab " + i + " (was " + current + ")")
         current = i
         content.removeAllViews()
         val view: View = when (i) {
             0 -> { timetable.refresh(); timetable }
             1 -> zhijia
             2 -> { nav.refresh(); nav }
-            else -> { chat.refreshProvider(); chat }
+            3 -> { chat.refreshProvider(); chat }
+            else -> { profile.refresh(); profile }
         }
-        val shown: View = if (i == 0 || i == 1) {
+        val shown: View = if (i == 0 || i == 1 || i == 4) {
             // 页面在切换时会被临时包一层 ScrollView；再次进入前先从旧父容器摘除，避免 child already has a parent
             (view.parent as? ViewGroup)?.removeView(view)
             ScrollView(this).apply {
@@ -144,7 +168,7 @@ class MainShellActivity : AppCompatActivity() {
         for ((idx, tv) in navButtons.withIndex()) {
             val on = idx == i
             tv.setTextColor(if (on) color(R.color.accent) else color(R.color.text_secondary))
-            tv.background = if (on) rounded(this, Color.parseColor("#1F2933"), 12) else null
+            tv.background = if (on) rounded(this, Color.parseColor("#2A1E15"), 12) else null
         }
     }
 

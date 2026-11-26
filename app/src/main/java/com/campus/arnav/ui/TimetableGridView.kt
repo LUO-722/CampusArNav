@@ -4,10 +4,12 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.DashPathEffect
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import com.campus.arnav.data.Activity
 import com.campus.arnav.data.Course
 import com.campus.arnav.data.ScheduleLogic
 
@@ -26,29 +28,39 @@ class TimetableGridView @JvmOverloads constructor(
         set(v) { field = v; invalidate() }
     var week: Int = 1
         set(v) { field = v; invalidate() }
+    /** 本周（只传本周日期范围内的）活动，按时间画进格子。 */
+    var activities: List<Activity> = emptyList()
+        set(v) { field = v; invalidate() }
 
     var onCourseTap: ((Course) -> Unit)? = null
+    var onActivityTap: ((Activity) -> Unit)? = null
 
     private val density = resources.displayMetrics.density
-    private val periodW = 40 * density
-    private val dayW = 56 * density
+    private val periodW = 56 * density
+    private val dayW = 54 * density
     private val headerH = 30 * density
     private val rowH = 54 * density
 
-    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF121821.toInt() }
+    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1E1610.toInt() }
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF263040.toInt()
+        color = 0xFF3D2C20.toInt()
         strokeWidth = 1 * density
         style = Paint.Style.STROKE
     }
     private val headPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF9AA7B4.toInt()
+        color = 0xFFC7A98C.toInt()
         textSize = 11 * density
         textAlign = Paint.Align.CENTER
     }
     private val periodPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF9AA7B4.toInt()
+        color = 0xFFC7A98C.toInt()
         textSize = 11 * density
+        textAlign = Paint.Align.CENTER
+    }
+    /** 节次时间：08:15 这类小字，画在节次号下面。 */
+    private val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF9A7E62.toInt()
+        textSize = 8.5f * density
         textAlign = Paint.Align.CENTER
     }
     private val courseNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -63,6 +75,22 @@ class TimetableGridView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
     }
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    /** 活动块用虚线框，和实心的课程块区分开。 */
+    private val activityStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.2f * density
+    }
+    private val activityNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF3A2413.toInt()
+        textSize = 9.5f * density
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+    }
+    private val activityTimePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xCC3A2413.toInt()
+        textSize = 8.5f * density
+        textAlign = Paint.Align.CENTER
+    }
     private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0x33FFFFFF
         style = Paint.Style.STROKE
@@ -90,17 +118,15 @@ class TimetableGridView @JvmOverloads constructor(
         }
         canvas.drawLine(periodW, 0f, periodW, headerH + rowH * 12, linePaint)
 
-        // 横线 + 节次
+        // 横线 + 节次 + 节次时间（时间来自知识库《作息时间与门禁》科文 12 节作息，全年一套）
         for (p in 0..12) {
             val y = headerH + rowH * p
             canvas.drawLine(0f, y, width.toFloat(), y, linePaint)
             if (p < 12) {
-                canvas.drawText(
-                    (p + 1).toString(),
-                    periodW / 2,
-                    y + rowH / 2 + periodPaint.textSize / 3,
-                    periodPaint
-                )
+                val mid = y + rowH / 2
+                val start = ScheduleLogic.periodTime(p + 1, "").substringBefore('-')
+                canvas.drawText((p + 1).toString(), periodW / 2, mid - 3 * density, periodPaint)
+                canvas.drawText(start, periodW / 2, mid + 10 * density, timePaint)
             }
         }
         for (d in 1..7) {
@@ -136,6 +162,41 @@ class TimetableGridView @JvmOverloads constructor(
                 )
             }
         }
+
+        // 活动块：画在课程之上，暖色半透明 + 虚线框，一眼区分「临时日程」
+        for (a in activities) {
+            val wd = ScheduleLogic.weekdayOf(a.date)
+            if (wd !in 1..7) continue
+            val sp = ScheduleLogic.periodForTime(a.startTime, a.date).coerceIn(1, 12)
+            val epRaw = ScheduleLogic.periodForTime(a.endTime, a.date).coerceIn(1, 12)
+            val ep = if (epRaw < sp) sp else epRaw
+            val x = periodW + dayW * (wd - 1) + 2 * density
+            val y = headerH + rowH * (sp - 1) + 2 * density
+            val w = dayW - 4 * density
+            val h = rowH * (ep - sp + 1) - 4 * density
+            blockRect.set(x, y, x + w, y + h)
+            fillPaint.color = if (a.conflict) 0x66FF8F5E.toInt() else 0x59FFB067
+            canvas.drawRoundRect(blockRect, 6 * density, 6 * density, fillPaint)
+            activityStroke.pathEffect = DashPathEffect(floatArrayOf(3 * density, 2 * density), 0f)
+            activityStroke.color = if (a.conflict) 0xCCFF8F5E.toInt() else 0xCCFFB067.toInt()
+            canvas.drawRoundRect(blockRect, 6 * density, 6 * density, activityStroke)
+            activityStroke.pathEffect = null
+
+            val lines = wrap(a.title, blockRect.width() - 8 * density, activityNamePaint)
+            var ty = y + 14 * density
+            for (line in lines.take(2)) {
+                canvas.drawText(line, x + w / 2, ty, activityNamePaint)
+                ty += 11 * density
+            }
+            if (h > 42 * density) {
+                canvas.drawText(
+                    "${a.startTime}-${a.endTime}",
+                    x + w / 2,
+                    y + h - 6 * density,
+                    activityTimePaint
+                )
+            }
+        }
     }
 
     private fun wrap(text: String, maxWidth: Float, paint: Paint): List<String> {
@@ -164,6 +225,20 @@ class TimetableGridView @JvmOverloads constructor(
             if (x < periodW || y < headerH) return true
             val day = ((x - periodW) / dayW).toInt() + 1
             val period = ((y - headerH) / rowH).toInt() + 1
+            // 活动块画在课程之上，所以先命中活动
+            val hitAct = activities.firstOrNull { a ->
+                if (a.date.isBlank()) return@firstOrNull false
+                val wd = ScheduleLogic.weekdayOf(a.date)
+                val sp = ScheduleLogic.periodForTime(a.startTime, a.date).coerceIn(1, 12)
+                val epRaw = ScheduleLogic.periodForTime(a.endTime, a.date).coerceIn(1, 12)
+                val ep = if (epRaw < sp) sp else epRaw
+                wd == day && period in sp..ep
+            }
+            if (hitAct != null) {
+                performClick()
+                onActivityTap?.invoke(hitAct)
+                return true
+            }
             val hit = courses.firstOrNull {
                 it.weekday == day && period in it.startPeriod..it.endPeriod &&
                     ScheduleLogic.weekMatches(it.weeks, week) && it.id !in skips

@@ -11,8 +11,8 @@ android {
         applicationId "com.campus.arnav"
         minSdk 24
         targetSdk 36
-        versionCode 38
-        versionName "0.13.2"
+        versionCode 39
+        versionName "0.14.0"
 
         // 内置云端通道（阿里云百炼 / DashScope OpenAI 兼容）。
         // Key 只从本机 local.properties 读取，编译进包，界面上不出现任何接口/Key 配置。
@@ -27,6 +27,9 @@ android {
         buildConfigField "String", "DASHSCOPE_BASE", "\"${aiBase}\""
         buildConfigField "String", "DASHSCOPE_MODEL", "\"${aiModel}\""
         buildConfigField "String", "DASHSCOPE_MODELS", "\"${aiModels}\""
+    def aiVisionModels = aiProps.getProperty("dashscope.vision_models", "qwen3-vl-plus")
+    buildConfigField "String", "DASHSCOPE_VISION_MODEL", "\"${aiVisionModels.split(',')[0].trim()}\""
+    buildConfigField "String", "DASHSCOPE_VISION_MODELS", "\"${aiVisionModels}\""
     }
 
     buildTypes {

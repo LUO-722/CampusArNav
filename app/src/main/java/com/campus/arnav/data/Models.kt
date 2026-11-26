@@ -78,5 +78,7 @@ data class ActivityDraft(
     var endTime: String = "",
     var location: String = "",
     var organizer: String = "",
-    var note: String = ""
+    var note: String = "",
+    /** 看图/读文时对应到图上的原文片段，用于让用户核对，不落库。 */
+    var evidence: String = ""
 )

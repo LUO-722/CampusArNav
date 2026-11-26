@@ -146,32 +146,13 @@ class ZhijiaTab(
         imageLabel.text = "已选：$name"
         imageLabel.setTextColor(ctx.color(R.color.accent))
         setMode(1)
-        // 选完图立刻用本机 ML Kit OCR 识字；图片不上传、不需要 VL Key
-        ocrBusy = true
-        status.text = "已选图片，正在用本机 OCR 识别文字（离线，不上传）…"
-        status.setTextColor(ctx.color(R.color.text_secondary))
-        Thread {
-            try {
-                val text = LocalOcr.recognizeLines(ctx, uri)
-                post {
-                    ocrBusy = false
-                    if (text.isBlank()) {
-                        status.text = "本机识字结果为空：图片可能太模糊，试试重新截图或裁剪后再试。"
-                    } else {
-                        setMode(0)
-                        input.setText(text)
-                        status.text = "本机已识别 ${text.length} 字（图片未上传），可先修改文字，再点「让智嘉提取活动」"
-                        status.setTextColor(ctx.color(R.color.accent))
-                        ctx.toast("已本机识别文字，图片未上传")
-                    }
-                }
-            } catch (e: Exception) {
-                post {
-                    ocrBusy = false
-                    status.text = "本机识字失败：${e.message}"
-                }
-            }
-        }.start()
+        ocrBusy = false
+        status.text = if (SettingsStore.extractOnline(ctx)) {
+            "已选图片。点「让智嘉提取活动」，会由看图模型理解整张图（图片上传阿里云，仅用于识别、不保存）。"
+        } else {
+            "已选图片。当前没网，会用本机识字 + 本机规则处理（图片不出手机）。"
+        }
+        status.setTextColor(ctx.color(R.color.accent))
     }
 
     private fun extract() {
@@ -181,25 +162,41 @@ class ZhijiaTab(
         }
         if (mode == 1) {
             val uri = imageUri ?: run { ctx.toast("先选一张通知截图"); return }
-            if (ocrBusy) {
-                ctx.toast("正在本机识字，请稍等…")
-                return
-            }
             val online = SettingsStore.extractOnline(ctx)
             extracting = true
             extractBtn.isEnabled = false
             extractBtn.text = "提取中…"
-            status.text = if (online) {
-                "正在本机识字，再用 AI 提取活动（图片不上传）…"
-            } else {
-                "正在本机识字，再用本机规则提取活动（图片不上传、不需要 Key）…"
-            }
             status.setTextColor(ctx.color(R.color.text_secondary))
             Thread {
+                // ① 有网：整张图交给看图模型，让它「理解」通知含义（不只是识字）
+                if (online) {
+                    post { status.text = "AI 正在读图（图片上传阿里云，仅用于识别、不保存）…" }
+                    var visionError = ""
+                    try {
+                        val b64 = NoticeExtractor.loadImageBase64(ctx, uri)
+                        val out = NoticeExtractor.extractImage(ctx, b64, "image/jpeg")
+                        post { doneExtract(); showDrafts(out, offline = false) }
+                        return@Thread
+                    } catch (e: Exception) {
+                        visionError = e.message ?: "未知原因"
+                        post { status.text = "云端读图没成功，改在本机识字：${visionError.take(40)}" }
+                    }
+                }
+                // ② 兜底：本机识字（离线、不上传）+ 文本模型/本机规则
                 try {
+                    post {
+                        status.text = if (online) "本机识字中（图片不再上传）…" else "本机识字 + 本机规则（图片不出手机）…"
+                    }
                     val text = LocalOcr.recognizeLines(ctx, uri)
                     if (text.isBlank()) {
-                        post { doneExtract(); status.text = "本机识字结果为空，无法提取活动。" }
+                        post {
+                            doneExtract()
+                            status.text = if (online) {
+                                "读图和本机识字都没拿到内容，换个截图、或把通知文字粘贴进来试试。"
+                            } else {
+                                "本机识字结果为空：图片可能太模糊，试试重新截图，或把文字粘贴进来。"
+                            }
+                        }
                         return@Thread
                     }
                     var usedOffline = !online
@@ -207,7 +204,6 @@ class ZhijiaTab(
                         try {
                             NoticeExtractor.extractText(ctx, text)
                         } catch (e: Exception) {
-                            // 云端不通（断网切换、限流、Key 失效）时不让用户空手：回落本机规则
                             usedOffline = true
                             OfflineExtractor.extract(text)
                         }
@@ -279,7 +275,7 @@ class ZhijiaTab(
         repeat(list.size) { checked.add(true) }
         status.text = when {
             list.isEmpty() && offline -> "本机没认出时间地点，可手动在课程表里＋活动。"
-            list.isEmpty() -> "没有识别到需要参加的活动，换一段原文试试。"
+            list.isEmpty() -> "这里没看出需要参加的活动；换张图/换段文字，或手动在课程表里＋活动。"
             offline -> "本机规则识别成功 ${list.size} 项（离线处理，文字/图片都没出手机），核对后录入。"
             else -> "识别到 ${list.size} 项活动，核对后录入。"
         }
@@ -314,6 +310,9 @@ class ZhijiaTab(
                 val place = listOf(d.location, d.organizer).filter { it.isNotBlank() }.joinToString(" · ")
                 if (place.isNotBlank()) addView(textView(ctx, place, 12f, ctx.color(R.color.text_secondary)))
                 if (d.note.isNotBlank()) addView(textView(ctx, d.note, 12f, ctx.color(R.color.text_secondary)))
+                if (d.evidence.isNotBlank()) {
+                    addView(textView(ctx, "图上原文：${d.evidence}", 11f, ctx.color(R.color.text_secondary)))
+                }
                 addView(textView(ctx, "点卡片可修改", 11f, ctx.color(R.color.text_secondary)))
             }
             c.setOnClickListener { editDraft(i) }

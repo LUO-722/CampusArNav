@@ -206,6 +206,20 @@ object SelfCheck {
                 com.campus.arnav.ui.ActivityRecord.NEW_ONLY == 1 &&
                 com.campus.arnav.ui.ActivityRecord.BOTH == 2
         }
+        check("看图 JSON 解析") {
+            val one = NoticeExtractor.parse(
+                """{"is_event":true,"kind":"群聊截图","items":[{"title":"防艾主题活动","date":"2026-12-01",
+                "start_time":"10:30","end_time":"12:30","location":"思齐广场","note":"可获加分",
+                "evidence":"12月1日(周二)10:30-12:30"}]}"""
+            )
+            val none = NoticeExtractor.parse("""{"is_event":false,"items":[]}""")
+            one.size == 1 &&
+                one[0].title == "防艾主题活动" &&
+                one[0].date == "2026-12-01" &&
+                one[0].startTime == "10:30" &&
+                one[0].evidence.contains("10:30") &&
+                none.isEmpty()
+        }
         return out
     }
 

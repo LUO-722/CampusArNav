@@ -34,10 +34,18 @@ object NoticeExtractor {
 通知原文：
 %s"""
 
-    private const val VISION_PROMPT = """识别这张校园通知/海报图片里的文字，并抽取所有学生活动。
+    private const val VISION_PROMPT = """你是校园助手，任务是「看懂这张图」，把图里的活动安排整理成日程。
+先判断这是什么图：群聊截图 / 公众号推文截图 / 海报 / 通知公告 / 表格 / 与活动无关的图片。
+然后按下面三步做：
+1) 像人一样理解内容：遇到艺术字、遮挡、错别字、表情符号、断行，要按上下文纠正后再理解（例如通知里把「艾滋」印成「茄艾」，应按上下文理解为「艾滋」）。
+2) 找出所有需要学生到场参加、或需要报名的事项（讲座、比赛、演出、招聘会、班会、志愿服务、打卡活动、报名截止等），一条活动一项；同一活动在图中重复出现只保留一次；纯聊天寒暄、与活动无关的内容不要输出。
+3) 地点人名以图上的字为准，看不清就留空，不要猜；校内地名请归一到下面这些规范名，图上写成近音/错字也按最接近的写：思齐广场、方湖、星垂湖、韶光园、青荇、风华楼、明志楼、明志报告厅、崇德楼、格物楼、笃行楼、致广楼、博学楼、弘毅楼、精工楼、匠心楼、一食堂、二食堂、商业街、校医院、体育馆、体育场、工程训练中心。organizer 只写图里明确写了「主办/承办/协办/举办单位」的，群聊昵称、发言人都不算主办方，没有就留空。
+4) 时间地点只写图里能确定的：年份没写就不要猜，按今天 %s 所在学年补全；只写了「12月1日」时取离今天最近的那一次；只写「本周五」就换算成具体日期；时间只有开始没有结束就留空；确实没有日期就留空，绝不编造。
+
+title 只保留活动名称本身：去掉首尾引号、书名号、多余符号与“通知/公告”尾巴。
 只输出 JSON，不要解释，格式：
-{"activities":[{"title":"活动名","date":"yyyy-MM-dd","start_time":"HH:mm","end_time":"HH:mm","location":"地点","organizer":"主办方","note":"报名方式/对象等"}]}
-今天是 %s。date 必须补全年份；没有活动就返回 {"activities":[]}。"""
+{"is_event":true,"kind":"群聊截图","items":[{"title":"活动名","date":"yyyy-MM-dd 或空","start_time":"HH:mm 或空","end_time":"HH:mm 或空","location":"地点","organizer":"主办方","note":"报名方式/对象/加分等，没有就空","evidence":"图上对应的原文片段，20 字以内"}]}
+图里没有活动就输出 {"is_event":false,"items":[]}。"""
 
     fun extractText(ctx: Context, text: String): List<ActivityDraft> {
         val today = CourseStore.today()
@@ -98,11 +106,14 @@ object NoticeExtractor {
         } catch (e: Exception) {
             throw LlmClient.LlmException("模型没有返回可解析的活动 JSON：${json.take(200)}")
         }
-        val arr: JSONArray = root.optJSONArray("activities") ?: JSONArray()
+        if (!root.optBoolean("is_event", true)) return emptyList()
+        val arr: JSONArray = root.optJSONArray("items")
+            ?: root.optJSONArray("activities")
+            ?: JSONArray()
         val out = ArrayList<ActivityDraft>()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
-            val title = o.optString("title").trim()
+            val title = o.optString("title").trim().trim('“', '”', '"', '\'', '《', '》').trim()
             if (title.isBlank()) continue
             val d = ActivityDraft(
                 title = title,
@@ -111,7 +122,8 @@ object NoticeExtractor {
                 endTime = normalizeTime(o.optString("end_time").trim()),
                 location = o.optString("location").trim(),
                 organizer = o.optString("organizer").trim(),
-                note = o.optString("note").trim()
+                note = o.optString("note").trim(),
+                evidence = o.optString("evidence").trim()
             )
             out.add(d)
         }

@@ -79,15 +79,16 @@ object SettingsStore {
         ).withProxy(ctx)
     }
 
-    fun vision(ctx: Context): Provider {
-        val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        return Provider(
-            sp.getString("vl_base", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-                ?: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            sp.getString("vl_key", "") ?: "",
-            sp.getString("vl_model", "qwen-vl-max-latest") ?: "qwen-vl-max-latest"
-        ).withProxy(ctx)
-    }
+    /**
+     * 看图用的通道：还是内置百炼，但只挂「能看图」的模型。
+     * 文本模型收到图片会直接 400，所以不能走 [modelChain] 那条混排链。
+     */
+    fun vision(ctx: Context): Provider = Provider(
+        BuildConfig.DASHSCOPE_BASE,
+        BuildConfig.DASHSCOPE_KEY,
+        BuildConfig.DASHSCOPE_VISION_MODEL,
+        models = BuildConfig.DASHSCOPE_VISION_MODELS.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    ).withProxy(ctx)
 
     /** 配了服务端代理就盖到 Provider 上：调用方（LlmClient / AgentEngine）不需要知道代理。 */
     private fun Provider.withProxy(ctx: Context): Provider {

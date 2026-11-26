@@ -85,9 +85,13 @@ object LlmClient {
         val text = post(provider) { model ->
             JSONObject().apply {
                 put("model", model)
+                put("temperature", 0.1)
+                put("stream", false)
                 put("messages", JSONArray().apply {
                     put(JSONObject().put("role", "user").put("content", content))
                 })
+                // 看图抽取要的是结构化结果；qwen3-vl 支持 json_object
+                put("response_format", JSONObject().put("type", "json_object"))
             }.toString()
         }
         return parseContent(text)

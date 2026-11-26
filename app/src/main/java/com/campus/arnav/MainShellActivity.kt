@@ -109,7 +109,7 @@ class MainShellActivity : AppCompatActivity() {
         zhijia = ZhijiaTab(this, onSaved = { timetable.refresh() }, onPickImage = {
             val i = Intent(Intent.ACTION_GET_CONTENT).apply { type = "image/*" }
             imageLauncher.launch(Intent.createChooser(i, "选择通知截图"))
-        })
+        }, onOpenTimetable = { switchTab(0) })
         nav = NavTab(this)
         chat = ChatTab(
             this,
@@ -222,7 +222,8 @@ class MainShellActivity : AppCompatActivity() {
         content.addView(shown, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         for ((idx, tv) in navButtons.withIndex()) {
             val on = idx == i
-            tv.setTextColor(if (on) color(R.color.accent) else color(R.color.text_secondary))
+            // 选中项字色用 accent_ink（#A61E46）：accent #E8447A 在 #FFE3EE 选中底上只有 3.15:1
+            tv.setTextColor(if (on) color(R.color.accent_ink) else color(R.color.text_secondary))
             tv.background = if (on) rounded(this, Color.parseColor("#FFE3EE"), 12) else null
         }
     }

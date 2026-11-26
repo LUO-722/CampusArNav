@@ -28,7 +28,9 @@ import com.campus.arnav.ocr.LocalOcr
 class ZhijiaTab(
     private val ctx: Context,
     private val onSaved: () -> Unit,
-    private val onPickImage: () -> Unit
+    private val onPickImage: () -> Unit,
+    /** 空态里的「去课程表手动加」入口；默认什么都不做，方便预览/单测。 */
+    private val onOpenTimetable: () -> Unit = {}
 ) : LinearLayout(ctx) {
 
     private var mode = 0 // 0 文字 1 图片 2 链接
@@ -38,6 +40,11 @@ class ZhijiaTab(
     private var imageUri: Uri? = null
     private val pickRow = LinearLayout(ctx)
     private val status = textView(ctx, "", 12f, ctx.color(R.color.text_secondary))
+    private val statusRow = LinearLayout(ctx)
+    private val retryBtn = button(ctx, "重试", ctx.color(R.color.bg_card), ctx.color(R.color.accent))
+    private val resultTitle = textView(ctx, "识别结果（勾选要录入的）", 15f, ctx.color(R.color.text_primary), bold = true)
+    private var lastFailed = false
+    private var emptyNotice = ""
     private val draftBox = LinearLayout(ctx)
     private val drafts = ArrayList<ActivityDraft>()
     private val checked = ArrayList<Boolean>()
@@ -92,11 +99,19 @@ class ZhijiaTab(
         addView(extractBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(46)).apply { topMargin = ctx.dp(8) })
 
         status.setPadding(0, ctx.dp(8), 0, ctx.dp(4))
-        addView(status)
+        statusRow.orientation = HORIZONTAL
+        statusRow.gravity = Gravity.CENTER_VERTICAL
+        statusRow.addView(status, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        retryBtn.visibility = GONE
+        retryBtn.setOnClickListener {
+            if (!extracting) extract()
+        }
+        statusRow.addView(retryBtn, LinearLayout.LayoutParams(ctx.dp(64), ctx.dp(34)).apply { leftMargin = ctx.dp(8) })
+        addView(statusRow)
 
-        addView(textView(ctx, "识别结果（勾选要录入的）", 15f, ctx.color(R.color.text_primary), bold = true).apply {
-            setPadding(0, ctx.dp(8), 0, ctx.dp(4))
-        })
+        resultTitle.setPadding(0, ctx.dp(8), 0, ctx.dp(4))
+        resultTitle.visibility = GONE
+        addView(resultTitle)
         draftBox.orientation = VERTICAL
         addView(draftBox)
 
@@ -108,6 +123,7 @@ class ZhijiaTab(
         })
 
         setMode(0)
+        renderDrafts() // 首屏就摆上常驻空态提示，避免按钮到导航栏之间整片空白
     }
 
     private fun setMode(m: Int) {
@@ -148,9 +164,9 @@ class ZhijiaTab(
         setMode(1)
         ocrBusy = false
         status.text = if (SettingsStore.extractOnline(ctx)) {
-            "已选图片。点「让智嘉提取活动」，会由看图模型理解整张图（图片上传阿里云，仅用于识别、不保存）。"
+            "已选图片。点「让智嘉提取活动」，会由看图模型理解整张图（图片上传云端，仅用于识别、不保存）。"
         } else {
-            "已选图片。当前没网，会用本机识字 + 本机规则处理（图片不出手机）。"
+            "已选图片。当前没配 AI 或没网，会用本机识字 + 本机规则处理（图片不出手机）。"
         }
         status.setTextColor(ctx.color(R.color.accent))
     }
@@ -160,6 +176,7 @@ class ZhijiaTab(
             ctx.toast("正在提取，请稍等…")
             return
         }
+        retryBtn.visibility = GONE
         if (mode == 1) {
             val uri = imageUri ?: run { ctx.toast("先选一张通知截图"); return }
             val online = SettingsStore.extractOnline(ctx)
@@ -168,51 +185,58 @@ class ZhijiaTab(
             extractBtn.text = "提取中…"
             status.setTextColor(ctx.color(R.color.text_secondary))
             Thread {
-                // ① 有网：整张图交给看图模型，让它「理解」通知含义（不只是识字）
+                // 云端看图：抽到活动就直接用；失败或为空都记下原因，后面如实告诉用户（不再静默吞掉）
+                var cloudError: String? = null
+                var cloudEmpty = false
                 if (online) {
-                    post { status.text = "AI 正在读图（图片上传阿里云，仅用于识别、不保存）…" }
-                    var visionError = ""
+                    post { status.text = "AI 正在读图（图片上传云端，仅用于识别、不保存）…" }
                     try {
                         val b64 = NoticeExtractor.loadImageBase64(ctx, uri)
                         val out = NoticeExtractor.extractImage(ctx, b64, "image/jpeg")
-                        post { doneExtract(); showDrafts(out, offline = false) }
-                        return@Thread
+                        if (out.isNotEmpty()) {
+                            post { finishExtract(out, usedOffline = false, cloudError = null, cloudEmpty = false) }
+                            return@Thread
+                        }
+                        cloudEmpty = true
+                        post { status.text = "云端看完了，图里没找到活动；再用本机规则找一遍…" }
                     } catch (e: Exception) {
-                        visionError = e.message ?: "未知原因"
-                        post { status.text = "云端读图没成功，改在本机识字：${visionError.take(40)}" }
+                        cloudError = whyText(e)
+                        post { status.text = "云端没读出来：$cloudError；改在本机识字…" }
                     }
                 }
-                // ② 兜底：本机识字（离线、不上传）+ 文本模型/本机规则
+                // 兜底：本机识字（离线、不上传）+ 本机规则
                 try {
                     post {
                         status.text = if (online) "本机识字中（图片不再上传）…" else "本机识字 + 本机规则（图片不出手机）…"
                     }
                     val text = LocalOcr.recognizeLines(ctx, uri)
                     if (text.isBlank()) {
-                        post {
-                            doneExtract()
-                            status.text = if (online) {
-                                "读图和本机识字都没拿到内容，换个截图、或把通知文字粘贴进来试试。"
-                            } else {
-                                "本机识字结果为空：图片可能太模糊，试试重新截图，或把文字粘贴进来。"
-                            }
-                        }
+                        post { finishExtract(emptyList(), usedOffline = true, cloudError = cloudError, cloudEmpty = cloudEmpty) }
                         return@Thread
                     }
-                    var usedOffline = !online
-                    val out = if (online) {
-                        try {
-                            NoticeExtractor.extractText(ctx, text)
-                        } catch (e: Exception) {
-                            usedOffline = true
+                    var usedOffline = true
+                    val out: List<ActivityDraft>
+                    if (online && cloudError != null) {
+                        // 图没读懂但网络还在：用云端文本模型再读一次本机识出的文字
+                        out = try {
+                            NoticeExtractor.extractText(ctx, text).also { usedOffline = false }
+                        } catch (_: Exception) {
+                            // 文字模型也没读出来：保留第一次的云端原因，继续用本机规则
                             OfflineExtractor.extract(text)
                         }
                     } else {
-                        OfflineExtractor.extract(text)
+                        out = OfflineExtractor.extract(text)
                     }
-                    post { doneExtract(); showDrafts(out, offline = usedOffline) }
+                    post { finishExtract(out, usedOffline = usedOffline, cloudError = cloudError, cloudEmpty = cloudEmpty) }
                 } catch (e: Exception) {
-                    post { doneExtract(); status.text = "提取失败：${e.message}" }
+                    post {
+                        finishExtract(
+                            emptyList(),
+                            usedOffline = true,
+                            cloudError = cloudError ?: whyText(e),
+                            cloudEmpty = cloudEmpty
+                        )
+                    }
                 }
             }.start()
         } else {
@@ -230,33 +254,35 @@ class ZhijiaTab(
                     "公众号文章常被反爬拦截，正在尝试抓取；失败请改用截图或粘贴正文"
                 mode == 2 -> "正在抓网页正文…"
                 online -> "正在让 AI 提取活动…"
-                else -> "正在用本机规则提取活动（不需要 Key）…"
+                else -> "正在用本机规则提取活动（不需要联网）…"
             }
             status.setTextColor(ctx.color(R.color.text_secondary))
             Thread {
+                // 记住失败原因但别静默：结果为空时要把「云端为什么没读出来」写在状态行上
+                var cloudError: String? = null
+                var cloudEmpty = false
+                var usedOffline = !online
                 try {
                     val body = if (mode == 2) WebPage.fetch(text) else text
-                    var usedOffline = !online
-                    val out = if (online) {
+                    val out: List<ActivityDraft> = if (online) {
                         try {
-                            NoticeExtractor.extractText(ctx, body)
+                            NoticeExtractor.extractText(ctx, body).also { cloudEmpty = it.isEmpty() }
                         } catch (e: Exception) {
+                            cloudError = whyText(e)
                             usedOffline = true
                             OfflineExtractor.extract(body)
                         }
                     } else {
                         OfflineExtractor.extract(body)
                     }
-                    post { doneExtract(); showDrafts(out, offline = usedOffline) }
+                    post { finishExtract(out, usedOffline, cloudError, cloudEmpty) }
                 } catch (e: Exception) {
-                    post {
-                        doneExtract()
-                        status.text = if (mode == 2) {
-                            "提取失败：${e.message}（公众号文章可能被反爬拦截，试试截图或粘贴正文）"
-                        } else {
-                            "提取失败：${e.message}"
-                        }
+                    val msg = if (mode == 2) {
+                        "网页没打开：${whyText(e)}；换成截图，或把正文粘贴进来再提取。"
+                    } else {
+                        "这段内容没读进去：${whyText(e)}；换个格式再试，或手动在课程表里＋活动。"
                     }
+                    post { failExtract(msg) }
                 }
             }.start()
         }
@@ -268,24 +294,112 @@ class ZhijiaTab(
         extractBtn.text = "让智嘉提取活动"
     }
 
-    private fun showDrafts(list: List<ActivityDraft>, offline: Boolean = false) {
+    /**
+ * 提取结束：把「云端有没有读出来」如实写在状态行上，并只在失败时露出「重试」。
+ * 文案口径：只出现「云端 / 本机」，不出现 Key、接口地址、模型名、堆栈。
+ */
+    private fun finishExtract(
+        list: List<ActivityDraft>,
+        usedOffline: Boolean,
+        cloudError: String? = null,
+        cloudEmpty: Boolean = false
+    ) {
+        doneExtract()
+        lastFailed = list.isEmpty()
+        retryBtn.visibility = if (lastFailed) VISIBLE else GONE
         drafts.clear()
         drafts.addAll(list)
         checked.clear()
         repeat(list.size) { checked.add(true) }
+        val reason = cloudError?.take(80)
         status.text = when {
-            list.isEmpty() && offline -> "本机没认出时间地点，可手动在课程表里＋活动。"
-            list.isEmpty() -> "这里没看出需要参加的活动；换张图/换段文字，或手动在课程表里＋活动。"
-            offline -> "本机规则识别成功 ${list.size} 项（离线处理，文字/图片都没出手机），核对后录入。"
-            else -> "识别到 ${list.size} 项活动，核对后录入。"
+            list.isNotEmpty() && reason != null && usedOffline ->
+                "云端没读出来：$reason；已用本机规则识别 ${list.size} 项，核对后录入。"
+            list.isNotEmpty() && reason != null ->
+                "云端看图没读懂：$reason；改用文字模型读到了 ${list.size} 项，核对后录入。"
+            list.isNotEmpty() && usedOffline ->
+                "本机规则识别成功 ${list.size} 项（离线处理，文字/图片都没出手机），核对后录入。"
+            list.isNotEmpty() ->
+                "识别到 ${list.size} 项活动，核对后录入。"
+            reason != null ->
+                "云端没读出来：$reason；已用本机规则重试。"
+            cloudEmpty ->
+                "看完了，这段内容里没有需要到场/报名的活动。"
+            else ->
+                "本机没认出时间地点，可手动在课程表里＋活动。"
         }
-        status.setTextColor(if (list.isEmpty()) Color.parseColor("#E8447A") else ctx.color(R.color.text_secondary))
+        // 云端其实读完了、只是没有活动 —— 这是「正常但为空」，别用报警红
+        status.setTextColor(
+            if (list.isEmpty() && (reason != null || !cloudEmpty)) {
+                Color.parseColor("#E8447A")
+            } else {
+                ctx.color(R.color.text_secondary)
+            }
+        )
+        emptyNotice = if (list.isEmpty()) {
+            "可点右侧「重试」再跑一次，或把通知原文补全（时间、地点、活动名）后重新提取。"
+        } else {
+            ""
+        }
         renderDrafts()
+    }
+
+    /** 彻底没跑起来（网页抓不到等）：给一句人话 + 引导，并露出「重试」。 */
+    private fun failExtract(message: String) {
+        doneExtract()
+        lastFailed = true
+        retryBtn.visibility = VISIBLE
+        drafts.clear()
+        checked.clear()
+        emptyNotice = "可点右侧「重试」再跑一次，或把通知原文补全（时间、地点、活动名）后重新提取。"
+        status.text = sanitize(message)
+        status.setTextColor(Color.parseColor("#E8447A"))
+        renderDrafts()
+    }
+
+    /** 把异常翻成人话，并去掉 Key/接口地址/模型名等不该给学生看的东西。 */
+    private fun whyText(e: Throwable?): String {
+        val raw = (e?.message ?: e?.javaClass?.simpleName ?: "").lowercase()
+        return when {
+            raw.contains("timeout") || raw.contains("timed out") || raw.contains("超时") -> "网络超时"
+            raw.contains("unknownhost") || raw.contains("unable to resolve") ||
+                raw.contains("connect") || raw.contains("socket") || raw.contains("refused") -> "连不上服务器（网络可能不通）"
+            raw.contains("401") || raw.contains("403") || raw.contains("key") ||
+                raw.contains("token") || raw.contains("bearer") || raw.contains("unauthor") ||
+                raw.contains("验证") || raw.contains("权限") || raw.contains("forbidden") -> "服务端没通过验证"
+            raw.contains("429") || raw.contains("rate") || raw.contains("频繁") -> "请求太频繁"
+            raw.contains("500") || raw.contains("502") || raw.contains("503") || raw.contains("504") ||
+                raw.contains("unavailable") -> "服务端暂时不可用"
+            raw.contains("json") || raw.contains("parse") || raw.contains("格式") -> "返回内容没读懂"
+            else -> sanitize(e?.message.orEmpty()).ifBlank { "网络或服务暂时不可用" }
+        }
+    }
+
+    private fun sanitize(s: String): String {
+        val cleaned = s
+            .replace(Regex("https?://\\S+"), " ")
+            .replace(
+                Regex(
+                    "(?i)\\b(deepseek|qwen|dashscope|bailian|aliyun|openai|gpt|llm|api[-_ ]?key|bearer|token)\\S*"
+                ),
+                " "
+            )
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return if (cleaned.length > 80) cleaned.take(80) else cleaned
     }
 
     private fun renderDrafts() {
         draftBox.removeAllViews()
+        resultTitle.visibility = if (drafts.isEmpty()) GONE else VISIBLE
         saveBtn.visibility = if (drafts.isEmpty()) GONE else VISIBLE
+        if (drafts.isEmpty()) {
+            draftBox.addView(emptyCard(), LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = ctx.dp(10) })
+            return
+        }
         for ((i, d) in drafts.withIndex()) {
             val c = card(ctx, 12).apply {
                 setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), ctx.dp(10))
@@ -318,6 +432,28 @@ class ZhijiaTab(
             c.setOnClickListener { editDraft(i) }
             draftBox.addView(c, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = ctx.dp(8) })
         }
+    }
+
+    /**
+     * 空态常驻卡：首屏/无结果时不靠隐藏标题来消除留白，而是给一条 13sp 提示
+     * 加一个真正可点的入口（去课程表手动加）。
+     */
+    private fun emptyCard(): LinearLayout = card(ctx, 14).apply {
+        setPadding(ctx.dp(14), ctx.dp(14), ctx.dp(14), ctx.dp(14))
+        addView(textView(ctx, "粘贴通知或选图片，智嘉会读出时间地点。", 13f, ctx.color(R.color.text_secondary)))
+        if (emptyNotice.isNotBlank()) {
+            addView(textView(ctx, emptyNotice, 12f, ctx.color(R.color.text_secondary)).apply {
+                setPadding(0, ctx.dp(6), 0, 0)
+            })
+        }
+        addView(
+            button(ctx, "去课程表手动加", ctx.color(R.color.accent_soft), ctx.color(R.color.accent)).apply {
+                setOnClickListener { onOpenTimetable() }
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dp(38)).apply {
+                topMargin = ctx.dp(10)
+            }
+        )
     }
 
     private fun editDraft(i: Int) {
@@ -398,6 +534,9 @@ class ZhijiaTab(
             onSaved()
             drafts.clear()
             checked.clear()
+            emptyNotice = ""
+            lastFailed = false
+            retryBtn.visibility = GONE
             renderDrafts()
             status.text = msg
             return

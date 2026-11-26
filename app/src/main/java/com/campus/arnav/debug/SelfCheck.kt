@@ -3,11 +3,13 @@ package com.campus.arnav.debug
 import android.content.Context
 import com.campus.arnav.agent.AgentEngine
 import com.campus.arnav.agent.NoticeExtractor
+import com.campus.arnav.agent.OfflineExtractor
 import com.campus.arnav.data.AppDb
 import com.campus.arnav.data.AuthStore
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.Activity
 import com.campus.arnav.data.ScheduleLogic
+import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.kb.KbIndex
 import com.campus.arnav.net.JwxtClient
 import org.json.JSONObject
@@ -219,6 +221,33 @@ object SelfCheck {
                 one[0].startTime == "10:30" &&
                 one[0].evidence.contains("10:30") &&
                 none.isEmpty()
+        }
+        check("活动文字解析") {
+            // 真实通知（三条，群聊里常见的一行一条）走本机规则路径：不配任何 API Key
+            // 也必须能拆出活动。0.11.0 曾把文字提取指向 deepseek 直连通道（无内置 Key，
+            // 必然失败，智嘉页「提取不了文字」），此条防回归。
+            val text = """
+                通知一：关于举办校园歌手大赛初赛的通知 11月25日19:00 大学生活动中心
+                通知二：专题讲座《全国大学生市场调查与分析大赛》11月26日下午15:30-16:30博学楼102教室，本次活动1个PU分，欢迎同学们参加。
+                通知三：防艾主题班会 11月27日10:00 思齐广场
+            """.trimIndent()
+            val items = OfflineExtractor.extract(text, "2026-11-26")
+            val hit = items.firstOrNull { it.date == "2026-11-26" }
+            items.isNotEmpty() && hit != null &&
+                hit.startTime == "15:30" && hit.endTime == "16:30" &&
+                hit.location.contains("博学楼")
+        }
+        check("内置通道就绪") {
+            // 内置百炼 Key 在构建时从 local.properties 编进 BuildConfig：
+            // 用户不填任何 Key，chatProvider 与 aiApiReady 都应为 true。
+            val chat = SettingsStore.chatProvider(ctx)
+            chat.ready() && SettingsStore.aiApiReady(ctx) && chat.model.isNotBlank()
+        }
+        check("旧通道已废弃") {
+            // deepseek 直连通道不再内置 Key（0.11.0 起）：只确认调用不抛异常。
+            // ready() 为 false 属正常状态，不作为失败条件。
+            val legacy = SettingsStore.deepseek(ctx)
+            legacy.model.isNotBlank() && legacy.base.isNotBlank()
         }
         return out
     }

@@ -48,7 +48,7 @@ class CompassRoseView @JvmOverloads constructor(
 
         text.textSize = 15f * dp
         text.typeface = Typeface.DEFAULT_BOLD
-        text.color = Color.parseColor("#E8447A")
+        text.color = Color.parseColor("#A61E46")
         canvas.drawText("2D 模式", w / 2f, topInsetPx + 48f * dp, text)
 
         val cx = w / 2f
@@ -66,7 +66,7 @@ class CompassRoseView @JvmOverloads constructor(
             val a = Math.toRadians((deg - heading).toDouble())
             val x = cx + (Math.sin(a) * radius * 0.86).toFloat()
             val y = cy - (Math.cos(a) * radius * 0.86).toFloat() + 5f * dp
-            text.color = if (label == "N") Color.parseColor("#E8447A") else Color.argb(220, 61, 51, 64)
+            text.color = if (label == "N") Color.parseColor("#A61E46") else Color.argb(220, 61, 51, 64)
             canvas.drawText(label, x, y, text)
         }
 
@@ -104,7 +104,7 @@ class CompassRoseView @JvmOverloads constructor(
 
         if (instruction.isNotEmpty()) {
             text.textSize = 15f * dp
-            text.color = Color.parseColor("#E8447A")
+            text.color = Color.parseColor("#A61E46")
             canvas.drawText(instruction, cx, h - bottomInsetPx - 60f * dp, text)
         }
     }

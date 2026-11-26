@@ -98,7 +98,7 @@ fun button(
     ctx: Context,
     text: String,
     bg: Int = ctx.color(R.color.bg_card),
-    fg: Int = ctx.color(R.color.accent)
+    fg: Int = ctx.color(R.color.accent_ink)
 ): Button = Button(ctx).apply {
     this.text = text
     isAllCaps = false

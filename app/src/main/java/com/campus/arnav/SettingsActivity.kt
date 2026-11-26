@@ -2,11 +2,9 @@ package com.campus.arnav
 
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.InputType
-import android.text.method.PasswordTransformationMethod
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -42,14 +40,14 @@ import com.campus.arnav.ui.kvRow
 import com.campus.arnav.ui.textView
 
 /**
- * 设置页：按「卡片 + 状态徽标 + 折叠高级项」组织，避免一屏堆十几个输入框。
+ * 设置页：按「卡片 + 状态徽标」组织，一屏能看完，且没有任何需要用户填的云端配置。
  *
  * 结构：
- *   ① DeepSeek（文本）—— 状态徽标 + Key + 测试 + 折叠的高级项（地址/模型）
- *   ② AI 服务（可选）—— 自建服务端代理地址 + 访问令牌，填了 App 内就无需 API Key
- *   ③ 教务系统 / 图片识别 / 学期设置 / 数据与诊断
- * 底部固定的「保存设置」一次提交全部改动。
- * 没有 Key 也没有代理时，App 自动降级为本机规则识别活动 + 离线知识库问答。
+ *   ① AI 服务 —— 只读状态：内置云端模型 + 断网自动离线
+ *   ② 教务系统（登录 / 同步 / 退出，登录是可选的）
+ *   ③ 提醒 / 学期设置 / 数据与诊断
+ * 底部固定的「保存设置」只提交学期。
+ * 云端通道在构建期注入，用户侧不需要 Key、地址或代理。
  */
 class SettingsActivity : AppCompatActivity() {
 
@@ -119,10 +117,10 @@ class SettingsActivity : AppCompatActivity() {
 
         // ③ 图片识别（本机 OCR）
         val ocrCard = card(this, 14)
-        ocrCard.addView(headerRow("图片识别", "本机 OCR · 离线 · 不传图片", null))
+        ocrCard.addView(headerRow("图片识别", "云端读图 + 本机兜底", null))
         ocrCard.addView(textView(this,
-            "智嘉选图、对话发图时会先用手机本机的 ML Kit 中文 OCR 把图片里的文字识别出来，" +
-                "只把识别出的文字用于后续处理；图片本身不上传，也不需要任何 Key。\n" +
+            "智嘉选图、对话发图时，有网络会交内置看图模型理解整张图，断网时用手机本机的 ML Kit 中文 OCR 兜底；" +
+                "只把识别结果用于本次处理，图片不留存。\n" +
                 "适合截图、票据、通知照片、界面文字。识别结果会先填入文字框，可修改后再提取。",
             12f, color(R.color.text_secondary)
         ).apply { setPadding(0, dp(6), 0, dp(6)) })
@@ -211,10 +209,10 @@ class SettingsActivity : AppCompatActivity() {
         box.addView(save, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(6) })
 
         box.addView(textView(this,
-            "· 什么都不填也能用：智嘉走本机规则识别活动，对话走离线知识库，绝不因为没 Key 而不可用。\n" +
-                "· 有自建代理时请求发到「代理地址 /chat/completions」（OpenAI 兼容），App 内不需要 API Key。\n" +
-                "· 图片文字识别走手机本机 ML Kit 中文 OCR，离线、免费、不传图片、不用 Key。\n" +
-                "· 高德路线走 uri.amap.com，不需要 Key。",
+            "· 打开即用：云端模型已内置，无需任何配置。\n" +
+                "· 有网络时自动接入云端（问答、录活动、写课表都在云端判断）；断网自动切离线知识库 + 本机规则。\n" +
+                "· 图片文字识别走手机本机 ML Kit 中文 OCR，离线、免费、不传图片。\n" +
+                "· 高德路线走 uri.amap.com，无需配置。",
             11f, color(R.color.text_secondary)
         ).apply { setPadding(0, dp(14), 0, 0) })
 
@@ -307,7 +305,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun refreshBadges() {
-        paintBadge(aiBadge, SettingsStore.aiApiReady(this), "已内置", "未内置")
+        paintBadge(aiBadge, SettingsStore.aiApiReady(this), "已接入", "离线")
     }
 
     // ---------------- 诊断动作 ----------------
@@ -414,29 +412,6 @@ class SettingsActivity : AppCompatActivity() {
         return e
     }
 
-    /** 高级折叠区：把给定的字段挪进一个默认隐藏的纵向容器。 */
-    private fun advanced(parent: LinearLayout, label: String, fields: () -> List<EditText>): LinearLayout {
-        val holder = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-        }
-        parent.addView(holder, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ))
-        for (e in fields()) {
-            val wrap = e.parent as? ViewGroup ?: continue
-            (wrap.parent as? ViewGroup)?.removeView(wrap)
-            holder.addView(wrap, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ))
-        }
-        return holder
-    }
-
-    private fun setAdvancedVisible(parent: LinearLayout, holder: LinearLayout, visible: Boolean) {
-        holder.visibility = if (visible) View.VISIBLE else View.GONE
-    }
-
     private fun actionRow(vararg actions: Pair<String, () -> Unit>): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(0, dp(10), 0, 0)
@@ -449,33 +424,6 @@ class SettingsActivity : AppCompatActivity() {
                 if (i > 0) leftMargin = dp(8)
             })
         }
-    }
-
-    private fun eyeToggle(parent: LinearLayout, target: EditText): TextView {
-        var hidden = true
-        return TextView(this).apply {
-            text = "显示 Key"
-            textSize = 11f
-            setTextColor(color(R.color.accent))
-            setPadding(0, dp(6), 0, 0)
-            setOnClickListener {
-                if (hidden) {
-                    target.inputType = InputType.TYPE_CLASS_TEXT
-                    target.transformationMethod = null
-                    text = "隐藏 Key"
-                } else {
-                    target.maskKey()
-                    text = "显示 Key"
-                }
-                hidden = !hidden
-            }
-        }.also { parent.addView(it) }
-    }
-
-    private fun EditText.maskKey() {
-        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        transformationMethod = PasswordTransformationMethod.getInstance()
-        typeface = Typeface.DEFAULT
     }
 
     /** 改提前分钟数：立刻重排提醒，并给出反馈。 */

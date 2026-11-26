@@ -12,17 +12,16 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 
 /**
- * OpenAI 兼容的 Chat Completions 客户端（DeepSeek / 通义千问 VL / 自建代理）。
+ * OpenAI 兼容的 Chat Completions 客户端（阿里云百炼，DashScope）。
  * 只用 HttpURLConnection，不引入第三方网络库。
  *
- * 通道选择由 [Provider] 决定：`proxyBase` 非空时请求发到代理
- * （`{proxyBase}/chat/completions`，App 内不需要 DeepSeek Key），否则按原直连逻辑走。
+ * 通道参数来自 [Provider]（由 `SettingsStore` 在构建期注入）：请求固定发到内置云端，
+ * 用户侧不填地址、不填 Key；失败时上层会回落本机知识库，所以这里的文案只描述现象。
  */
 object LlmClient {
 
     private const val NO_CHANNEL =
-        "还没有可用的 AI 通道：可在「设置 → AI 服务」填自建代理，或填自己的 DeepSeek Key；" +
-            "两者都不填也能用（智嘉走本机规则识别 + 离线知识库）。"
+        "云端通道暂时不可用：请检查网络后再试；离线知识库仍可回答知识性问题。"
 
     private const val VISION_NO_CHANNEL =
         "当前不可用：没有网络，或云端识图通道暂时不通；" +
@@ -171,7 +170,7 @@ object LlmClient {
     }
 
     private fun postOnce(provider: Provider, body: String): String {
-        val base = endpointBase(provider.effectiveBase())
+        val base = endpointBase(provider.base)
         if (!base.startsWith("http://", true) && !base.startsWith("https://", true)) {
             throw LlmException("云端地址异常，请检查网络后重试。")
         }
@@ -179,7 +178,7 @@ object LlmClient {
         val conn = try {
             URL(url).openConnection() as HttpURLConnection
         } catch (e: Exception) {
-            throw LlmException("接口地址格式不对：${provider.effectiveBase()}")
+            throw LlmException("云端地址异常，请稍后重试。")
         }
         try {
             conn.requestMethod = "POST"
@@ -187,8 +186,8 @@ object LlmClient {
             conn.connectTimeout = 20_000
             conn.readTimeout = 120_000
             conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            // 代理可以不要令牌（例如只校验 App 内置 token 的服务端），空令牌就不发 Authorization
-            val token = provider.effectiveKey().trim()
+            // 内置通道的 Bearer：Key 由构建期注入，为空时就不发 Authorization 头
+            val token = provider.key.trim()
             if (token.isNotEmpty()) conn.setRequestProperty("Authorization", "Bearer $token")
             conn.setRequestProperty("Accept", "application/json")
             OutputStreamWriter(conn.outputStream, StandardCharsets.UTF_8).use { it.write(body) }
@@ -206,13 +205,13 @@ object LlmClient {
         } catch (e: java.net.SocketTimeoutException) {
             throw LlmException("请求超时：网络慢或模型响应太久，请稍后重试。")
         } catch (e: java.net.UnknownHostException) {
-            throw LlmException("连不上服务器：请检查网络或接口地址（${provider.effectiveBase()}）。")
+            throw LlmException("连不上服务器：请检查网络后再试。")
         } catch (e: javax.net.ssl.SSLException) {
-            throw LlmException("HTTPS 连接失败：请检查接口地址与网络环境。")
+            throw LlmException("云端连接失败：请检查网络环境后再试。")
         } catch (e: java.io.IOException) {
             val m = e.message.orEmpty()
             if (m.contains("cleartext", ignoreCase = true)) {
-                throw LlmException("接口地址是 http://，Android 禁止明文请求；请改用 https:// 的接口地址。")
+                throw LlmException("网络请求被系统拦截（明文 HTTP），请升级到最新版本或检查网络环境。")
             }
             throw LlmException("网络请求失败：${m.take(160).ifBlank { e.javaClass.simpleName }}")
         } finally {
@@ -232,8 +231,8 @@ object LlmClient {
 
     private fun friendlyError(code: Int, body: String): String {
         val hint = when (code) {
-            401, 403 -> "Key 或代理令牌无效 / 没有权限"
-            404 -> "接口地址不对（应填到 /v1 这一级）"
+            401, 403 -> "云端凭据无效，请稍后重试"
+            404 -> "模型暂时不可用，请稍后重试"
             429 -> "请求太频繁或额度用完"
             in 500..599 -> "模型服务暂时不可用"
             else -> "请求失败"

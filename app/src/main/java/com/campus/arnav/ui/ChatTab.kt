@@ -24,8 +24,8 @@ import com.campus.arnav.ocr.LocalOcr
 /**
  * ④ 聊天：知识库问答 + Agent 决策（录活动/加课/闹钟/导航建议）；图片先本机 OCR 识文字再提问。
  *
- * 配了 AI 通道（自己的 Key 或自建代理）走 [AgentEngine]；没配也不报错，
- * 直接用本机 BM25 知识库回答，功能不会「死」。
+ * 云端通道内置（无需任何配置），有网走 [AgentEngine]；没网或云端失败也不报错，
+ * 直接回落本机 BM25 知识库回答，功能不会「死」。
  */
 class ChatTab(
     private val ctx: Context,
@@ -59,16 +59,9 @@ class ChatTab(
         val titleBox = LinearLayout(ctx).apply { orientation = VERTICAL }
         titleBox.addView(textView(ctx, "智嘉 · 对话", 18f, ctx.color(R.color.text_primary), bold = true))
         titleBox.addView(modelLabel)
+        // 模型通道是构建期内置的，没有可选项：点一下只解释「无需配置」，不再弹配置菜单
         modelLabel.setOnClickListener {
-            choose(ctx, "聊天模型", listOf(
-                "DeepSeek 文本（快、便宜）",
-                "打开设置（填 Key 或自建代理）"
-            )) { which ->
-                when (which) {
-                    0 -> { SettingsStore.setChatUseVision(ctx, false); refreshProvider() }
-                    1 -> onOpenSettings()
-                }
-            }
+            ctx.toast("云端模型随网络自动切换，无需配置；断网时自动用离线知识库。")
         }
         head.addView(titleBox, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = ctx.dp(10) })
         head.addView(button(ctx, "清", ctx.color(R.color.bg_card), ctx.color(R.color.text_secondary)).apply {
@@ -164,10 +157,10 @@ class ChatTab(
 
     fun refreshProvider() {
         val p = SettingsStore.chatProvider(ctx)
-        modelLabel.text = when {
-            p.ready() && p.viaProxy() -> "模型：${p.model} · 走自建代理（App 内无需 Key）"
-            p.ready() -> "模型：${p.model}（文本）"
-            else -> "离线知识库模式（当前无网络或云端不可用，问答走本机知识库）"
+        modelLabel.text = if (p.ready()) {
+            "当前：云端模型（内置，无需配置） · 断网自动切离线知识库"
+        } else {
+            "离线知识库模式（云端通道未内置，问答走本机知识库）"
         }
     }
 
@@ -176,7 +169,7 @@ class ChatTab(
             ctx.toast("正在回复，稍等再发图")
             return
         }
-        // 图片走本机 ML Kit OCR：离线、不上传、不需要任何 Key
+        // 图片走本机 ML Kit OCR：离线、不上传、不依赖云端配置
         onPickImage()
     }
 
@@ -217,12 +210,12 @@ class ChatTab(
                     val r = AgentEngine.ask(context, history, text)
                     post { complete(r) }
                 } else {
-                    // 没 Key / 没代理：不报错，直接用本机知识库答（BM25，不联网）
+                    // 没网 / 云端不可用：不报错，直接用本机知识库答（BM25，不联网）
                     val reply = answerOffline(context, text)
                     post { completeOffline(reply) }
                 }
             } catch (e: Exception) {
-                // 断网 / 模型全部限流 / Key 失效：不让对话断在这里，直接用离线知识库答
+                // 断网 / 模型全部限流 / 云端报错：不让对话断在这里，直接用离线知识库答
                 val reply = answerOffline(context, text)
                 post { completeOffline(reply + "\n\n（云端暂时不可用，已用离线知识库回答）") }
             }
@@ -230,8 +223,8 @@ class ChatTab(
     }
 
     /**
-     * 离线兜底：本机 BM25 知识库检索后直接给条文（不联网、不需要 Key）。
-     * 注意离线模式只答知识性问题，写入类操作（加课/录活动）需要配 AI。
+     * 离线兜底：本机 BM25 知识库检索后直接给条文（不联网、不依赖云端配置）。
+     * 注意离线模式只答知识性问题，写入类操作（加课/录活动）需要云端模型。
      */
     private fun answerOffline(context: Context, query: String): String {
         val hits = try {

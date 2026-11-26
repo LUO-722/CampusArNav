@@ -41,7 +41,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
             orientation = HORIZONTAL
             setPadding(0, ctx.dp(8), 0, ctx.dp(6))
         }
-        tools.addView(button(ctx, "罗盘自检", ctx.color(R.color.bg_card), ctx.color(R.color.accent)).apply {
+        tools.addView(button(ctx, "罗盘自检", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
             setOnClickListener { ctx.startActivity(Intent(ctx, CompassTestActivity::class.java)) }
         }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f))
         tools.addView(button(ctx, "楼栋取点校准", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
@@ -89,11 +89,11 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
                     gravity = Gravity.CENTER_VERTICAL
                 }
                 head.addView(textView(ctx, b.name, 16f, ctx.color(R.color.text_primary), bold = true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                head.addView(textView(ctx, "AR", 11f, ctx.color(R.color.accent)))
+                head.addView(textView(ctx, "AR", 11f, ctx.color(R.color.accent_ink)))
                 addView(head)
                 addView(textView(ctx, b.subtitle, 12f, ctx.color(R.color.text_secondary)))
                 val meters = GeoUtils.distanceMeters(RouteRepository.gate.lat, RouteRepository.gate.lon, b.lat, b.lon)
-                addView(textView(ctx, "距南门约 ${meters.toInt()} 米 · 步行约 ${(meters / 80).toInt().coerceAtLeast(1)} 分钟", 12f, ctx.color(R.color.accent)))
+                addView(textView(ctx, "距南门约 ${meters.toInt()} 米 · 步行约 ${(meters / 80).toInt().coerceAtLeast(1)} 分钟", 12f, ctx.color(R.color.accent_ink)))
             }
             row.setOnClickListener { showActions(b.id, b.name, b.subtitle, b.lat, b.lon) }
             listBox.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = ctx.dp(8) })

@@ -248,7 +248,7 @@ class ProfileTab(
     private fun quickCard() {
         val card = card(ctx, 14)
         card.addView(titleRow("快捷入口", ""))
-        card.addView(actionRow("课程表" to onOpenTimetable, "设置与 Key" to onOpenSettings))
+        card.addView(actionRow("课程表" to onOpenTimetable, "设置" to onOpenSettings))
         card.addView(actionRow("导出课表" to { shareBackup() }, "关于" to { about() }))
         addView(card, cardLp())
     }

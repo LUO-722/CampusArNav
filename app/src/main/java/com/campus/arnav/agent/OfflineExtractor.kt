@@ -19,9 +19,12 @@ import java.util.Locale
  *  - 时间：`19:00` / `19：00`（全角冒号）/ `19:00-21:00` / `14:00至16:00` / `19:00~21:00`
  *          / `晚上7点` / `下午2:30` / `上午9点半` / `7点30分`；只有开始时间时结束默认 +90 分钟
  *  - 地点：`地点：xxx`（含“活动地点/举办地点”）、`于xxx举行` / `在xxx举办`、
+ *          正文里夹带的「xx楼102教室」（如 `16:30博学楼102教室`）、
  *          含「楼/厅/馆/室/场/中心/广场/礼堂」的短句
  *  - 标题：含「讲座/比赛/活动/报名/宣讲/通知…」关键词的行，或首个非时间/地点/称呼行；
- *          去掉“通知/公告”后缀，正常取 4..40 字（「讲座通知」这类关键词标题允许 2..3 字）
+ *          整句一句话的通知截到第一个日期/时间之前（去掉「通知一：」前缀），
+ *          再兜底取书名号里的活动名；去掉“通知/公告”后缀，正常取 4..40 字
+ *          （「讲座通知」这类关键词标题允许 2..3 字）
  *  - 多条通知：数字序号（`1.` / `2、` / `（3）`）或“第二条通知自己的日期行”处拆分
  *  - 主办方：`主办：xxx` / `主办单位：xxx` / `承办：xxx`；备注：报名/截止/携带/对象等要求行
  */
@@ -48,6 +51,12 @@ object OfflineExtractor {
         Regex("(?:在|于)\\s*([\\u4e00-\\u9fffA-Za-z0-9（）()\\-]{2,30}?)\\s*(?:举行|举办|召开|开展)")
     private val PLACE_HINT =
         Regex("[楼厅馆室场]|中心|广场|操场|礼堂|报告厅|会议室|体育馆|田径场|教室")
+    /** 地点夹在正文里的写法：`…16:30博学楼102教室`，行首没有“地点：”标签。 */
+    private val LOC_INLINE = Regex(
+        "([\\u4e00-\\u9fff]{2,8}(?:楼|厅|馆|中心|广场|礼堂|会议室|体育馆|田径场|操场|教室)\\s*[A-Za-z0-9\\-]{0,6}\\s*(?:教室|室)?)"
+    )
+    /** 书名号里的活动名（整句通知没有短标题时的兜底）。 */
+    private val BRACKET_TITLE = Regex("《([^《》]{2,40})》")
 
     private val ORGANIZER =
         Regex("(?:主办单位|承办单位|主办方|主办|承办|组织单位)\\s*[:：]?\\s*([^\\n，,。；;]{2,30})")
@@ -239,12 +248,41 @@ object OfflineExtractor {
             val t = cleanTitle(line)
             if (t.length in 4..40) return t
         }
+        // 整段一句话的通知（日期时间就写在同一行里）：截到第一个日期/时间之前当标题
+        for (line in lines) {
+            if (line.isBlank()) continue
+            val t = cleanTitle(titleHead(line))
+            if (t.length in 4..40) return t
+        }
+        // 再退一步：书名号里的活动名
+        for (line in lines) {
+            val m = BRACKET_TITLE.find(line) ?: continue
+            val t = cleanTitle(m.groupValues[1])
+            if (t.length in 2..40) return t
+        }
         return null
+    }
+
+    /** 取一行里第一个日期/时间之前的部分，作为“整句通知”的标题；太短或没有就用整行。 */
+    private fun titleHead(line: String): String {
+        val idx = listOfNotNull(
+            DATE_FULL.find(line)?.range?.first,
+            DATE_MD.find(line)?.range?.first,
+            TIME_RANGE.find(line)?.range?.first,
+            TIME_COLON.find(line)?.range?.first,
+            TIME_POINT.find(line)?.range?.first
+        ).minOrNull() ?: return line
+        return if (idx >= 4) line.substring(0, idx) else line
     }
 
     private fun findLocation(lines: List<String>, text: String): String {
         LOC_LABEL.find(text)?.let { return trimPlace(it.groupValues[1]) }
         LOC_AT.find(text)?.let { return trimPlace(it.groupValues[1]) }
+        // 地点夹在正文里（「…15:30-16:30博学楼102教室」），行首没有“地点：”标签
+        for (line in lines) {
+            if (!PLACE_HINT.containsMatchIn(line)) continue
+            LOC_INLINE.find(line)?.let { return trimPlace(it.groupValues[1]) }
+        }
         for (line in lines) {
             if (isNoise(line) || lineHasDate(line)) continue
             if (!PLACE_HINT.containsMatchIn(line)) continue
@@ -342,6 +380,8 @@ object OfflineExtractor {
         var t = raw.trim()
         // 行首序号：1. / 2、/（3）
         t = t.replace(Regex("^[\\s\\d一二三四五六七八九十]{1,3}\\s*[.、)）:：]\\s*"), "")
+        // 多段通知粘贴时的分隔前缀：通知一：/ 通知2：
+        t = t.replace(Regex("^通知\\s*[一二三四五六七八九十\\d]{1,3}\\s*[:：]\\s*"), "")
         // 行首尾装饰括号
         t = t.replace(Regex("^[【\\[（(「『]+"), "").replace(Regex("[】\\]）)」』]+$"), "")
         t = t.replace(Regex("\\s+"), " ")
@@ -355,6 +395,7 @@ object OfflineExtractor {
     /** 地点清洗：去掉尾随的时间/“举行”以及多余标点。 */
     private fun trimPlace(v: String): String {
         var t = v.trim()
+        t = t.replace(Regex("^[在于到去]{1,2}\\s*"), "")
         t = t.replace(Regex("\\s*\\d{1,2}[:：]\\d{2}.*$"), "")
         t = t.replace(Regex("\\s*(?:举行|举办|召开|开展).*$"), "")
         t = t.replace(Regex("[\\s，,。；;：:、]+"), " ")

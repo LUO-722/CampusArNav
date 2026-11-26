@@ -16,8 +16,8 @@ import org.json.JSONObject
 import java.util.Locale
 
 /**
- * 从通知文字/图片里抽取活动。优先走 DeepSeek JSON 模式；
- * 图片走通义 VL；失败时报错，让用户在设置里配 Key。
+ * 从通知文字/图片里抽取活动。文本走内置云端通道（JSON 模式），
+ * 图片走内置通义 VL；通道不可用时抛异常，由 UI 回落到本机规则。
  */
 object NoticeExtractor {
 
@@ -49,7 +49,7 @@ title 只保留活动名称本身：去掉首尾引号、书名号、多余符�
 
     fun extractText(ctx: Context, text: String): List<ActivityDraft> {
         val today = CourseStore.today()
-        val provider = SettingsStore.deepseek(ctx)
+        val provider = SettingsStore.chatProvider(ctx)
         val content = LlmClient.chat(
             provider,
             listOf(

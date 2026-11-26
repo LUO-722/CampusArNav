@@ -125,10 +125,10 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         demoTip.setPadding(ctx.dp(10), ctx.dp(7), ctx.dp(10), ctx.dp(7))
         demoTip.visibility = View.GONE
         demoTip.addView(
-            textView(ctx, "当前是示例课表 · 登录教务自动替换为你的真实课表", 11f, ctx.color(R.color.accent)),
+            textView(ctx, "当前是示例课表 · 登录教务自动替换为你的真实课表", 11f, ctx.color(R.color.accent_ink)),
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         )
-        val go = textView(ctx, "去登录", 11f, ctx.color(R.color.accent), bold = true).apply {
+        val go = textView(ctx, "去登录", 11f, ctx.color(R.color.accent_ink), bold = true).apply {
             background = rounded(ctx, Color.WHITE, 8)
             setPadding(ctx.dp(9), ctx.dp(3), ctx.dp(9), ctx.dp(3))
             setOnClickListener { openLogin() }
@@ -155,7 +155,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         val soft = Color.parseColor("#FFE3EE")
         for ((tv, idx) in listOf(segWeek to 0, segDay to 1)) {
             tv.background = rounded(ctx, if (m == idx) soft else Color.TRANSPARENT, 16)
-            tv.setTextColor(if (m == idx) ctx.color(R.color.accent) else ctx.color(R.color.text_secondary))
+            tv.setTextColor(if (m == idx) ctx.color(R.color.accent_ink) else ctx.color(R.color.text_secondary))
         }
         weekBox.visibility = if (m == 0) View.VISIBLE else View.GONE
         dayBox.visibility = if (m == 1) View.VISIBLE else View.GONE
@@ -175,10 +175,10 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, ctx.dp(8), 0, ctx.dp(4))
         }
-        val prev = button(ctx, "◀", ctx.color(R.color.bg_card), ctx.color(R.color.accent)).apply {
+        val prev = button(ctx, "◀", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
             setOnClickListener { switchWeek(-1) }
         }
-        val next = button(ctx, "▶", ctx.color(R.color.bg_card), ctx.color(R.color.accent)).apply {
+        val next = button(ctx, "▶", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
             setOnClickListener { switchWeek(1) }
         }
         val now = button(ctx, "本周", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
@@ -205,7 +205,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
             orientation = HORIZONTAL
             setPadding(0, ctx.dp(8), 0, ctx.dp(4))
         }
-        ops.addView(button(ctx, "导入课表", ctx.color(R.color.bg_card), ctx.color(R.color.accent)).apply {
+        ops.addView(button(ctx, "导入课表", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
             setOnClickListener { importDialog() }
         }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f))
         ops.addView(button(ctx, "＋课程", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
@@ -232,7 +232,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         ops2.addView(button(ctx, "导出 / 分享", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
             setOnClickListener { exportShare() }
         }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f))
-        ops2.addView(button(ctx, "＋活动", ctx.color(R.color.bg_card), ctx.color(R.color.accent)).apply {
+        ops2.addView(button(ctx, "＋活动", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
             setOnClickListener { addActivity() }
         }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f).apply { leftMargin = ctx.dp(6) })
         ops2.addView(button(ctx, "清空", ctx.color(R.color.bg_card), ctx.color(R.color.text_secondary)).apply {
@@ -264,11 +264,11 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, ctx.dp(8), 0, ctx.dp(4))
         }
-        navRow.addView(button(ctx, "◀", ctx.color(R.color.bg_card), ctx.color(R.color.accent)).apply {
+        navRow.addView(button(ctx, "◀", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
             setOnClickListener { shiftDay(-1) }
         }, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(36)))
         navRow.addView(dayNavLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        navRow.addView(button(ctx, "▶", ctx.color(R.color.bg_card), ctx.color(R.color.accent)).apply {
+        navRow.addView(button(ctx, "▶", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
             setOnClickListener { shiftDay(1) }
         }, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(36)))
         navRow.addView(button(ctx, "今天", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {

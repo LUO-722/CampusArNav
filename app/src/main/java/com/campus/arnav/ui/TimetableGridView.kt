@@ -49,18 +49,18 @@ class TimetableGridView @JvmOverloads constructor(
         style = Paint.Style.STROKE
     }
     private val headPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF9C8AA3.toInt()
+        color = 0xFF74637C.toInt()
         textSize = 11 * density
         textAlign = Paint.Align.CENTER
     }
     private val periodPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF9C8AA3.toInt()
+        color = 0xFF74637C.toInt()
         textSize = 11 * density
         textAlign = Paint.Align.CENTER
     }
     /** 节次时间：08:15 这类小字，画在节次号下面。 */
     private val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFB9A8C0.toInt()
+        color = 0xFF7E6C86.toInt()
         textSize = 8f * density
         textAlign = Paint.Align.CENTER
     }
@@ -122,7 +122,7 @@ class TimetableGridView @JvmOverloads constructor(
 
     private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFE3EE.toInt() }
     private val badgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFE8447A.toInt()
+        color = 0xFFA61E46.toInt()
         textSize = 7.5f * density
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true

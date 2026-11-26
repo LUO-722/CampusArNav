@@ -103,7 +103,7 @@ class LoginActivity : AppCompatActivity() {
         passwordInput = editText(this, "学校内网登录密码", InputType.TYPE_CLASS_TEXT, session.password)
             .apply { mask() }
         accCard.addView(passwordInput)
-        accCard.addView(textView(this, "显示密码", 11f, color(R.color.accent)).apply {
+        accCard.addView(textView(this, "显示密码", 11f, color(R.color.accent_ink)).apply {
             setPadding(0, dp(6), 0, 0)
             setOnClickListener {
                 if (passwordInput.transformationMethod == null) {
@@ -159,7 +159,7 @@ class LoginActivity : AppCompatActivity() {
         wanWrap.addView(wanInput)
         netCard.addView(wanWrap)
 
-        hint = textView(this, "", 11f, Color.parseColor("#E8447A")).apply {
+        hint = textView(this, "", 11f, color(R.color.accent_ink)).apply {
             setPadding(0, dp(8), 0, 0)
         }
         netCard.addView(hint)
@@ -187,7 +187,7 @@ class LoginActivity : AppCompatActivity() {
         capRow.addView(img, LinearLayout.LayoutParams(dp(110), dp(42)))
         capRow.addView(code, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             .apply { leftMargin = dp(8) })
-        val refresh = textView(this, "换一张", 12f, color(R.color.accent)).apply {
+        val refresh = textView(this, "换一张", 12f, color(R.color.accent_ink)).apply {
             setPadding(dp(10), dp(6), 0, dp(6))
             setOnClickListener {
                 captchaInput?.setText("")
@@ -250,7 +250,7 @@ class LoginActivity : AppCompatActivity() {
         wanWrap.visibility = if (lan) View.GONE else View.VISIBLE
         if (lan) {
             hint.text = "内网全天可登录，需要手机连着校园网。"
-            hint.setTextColor(Color.parseColor("#E8447A"))
+            hint.setTextColor(color(R.color.accent_ink))
         } else {
             val blocked = AuthStore.wanBlocked()
             hint.text = if (blocked) {
@@ -258,7 +258,7 @@ class LoginActivity : AppCompatActivity() {
             } else {
                 "现在 ${AuthStore.nowText()}，外网开放时段内（${AuthStore.wanWindowText()}），可以直接登录。"
             }
-            hint.setTextColor(if (blocked) Color.parseColor("#E8447A") else Color.parseColor("#2E7FA8"))
+            hint.setTextColor(if (blocked) color(R.color.accent_ink) else color(R.color.blue_ink))
         }
     }
 
@@ -271,7 +271,7 @@ class LoginActivity : AppCompatActivity() {
 
     private fun paintChip(v: TextView, selected: Boolean, label: String) {
         v.text = label
-        v.setTextColor(if (selected) color(R.color.accent) else color(R.color.text_secondary))
+        v.setTextColor(if (selected) color(R.color.accent_ink) else color(R.color.text_secondary))
         v.background = GradientDrawable().apply {
             cornerRadius = dp(12).toFloat()
             setColor(if (selected) Color.parseColor("#FFE3EE") else color(R.color.bg_dark))

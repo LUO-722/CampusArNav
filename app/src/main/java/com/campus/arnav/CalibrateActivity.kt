@@ -82,7 +82,7 @@ class CalibrateActivity : AppCompatActivity() {
 
         statusView = TextView(this).apply {
             textSize = 15f
-            setTextColor(ContextCompat.getColor(this@CalibrateActivity, R.color.accent))
+            setTextColor(ContextCompat.getColor(this@CalibrateActivity, R.color.accent_ink))
             setPadding(0, (16 * density).toInt(), 0, (6 * density).toInt())
         }
         root.addView(statusView)
@@ -105,7 +105,7 @@ class CalibrateActivity : AppCompatActivity() {
         addBtn.isAllCaps = false
         addBtn.textSize = 14f
         addBtn.setBackgroundResource(R.drawable.bg_card)
-        addBtn.setTextColor(ContextCompat.getColor(this, R.color.accent))
+        addBtn.setTextColor(ContextCompat.getColor(this, R.color.accent_ink))
         val addLp = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, (52 * density).toInt()
         )
@@ -206,7 +206,7 @@ class CalibrateActivity : AppCompatActivity() {
             btn.setBackgroundResource(if (has) R.drawable.bg_card else R.drawable.bg_card)
             btn.setTextColor(
                 ContextCompat.getColor(
-                    this, if (has) R.color.accent else R.color.text_primary
+                    this, if (has) R.color.accent_ink else R.color.text_primary
                 )
             )
             btn.setPadding((18 * density).toInt(), 0, (18 * density).toInt(), 0)

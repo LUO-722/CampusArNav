@@ -6,9 +6,14 @@
     <color name="accent">#E8447A</color>
     <color name="accent_soft">#FFE3EE</color>
     <color name="accent_blue">#7FC4E8</color>
-    <color name="blue_ink">#2E7FA8</color>
+    <color name="blue_ink">#23678A</color>
     <color name="blue_soft">#EAF6FD</color>
     <color name="border">#F4DEE8</color>
     <color name="text_primary">#3D3340</color>
-    <color name="text_secondary">#9C8AA3</color>
+    <!-- 小字/次要文字：原 #9C8AA3 在 #FFF7FB 上仅 3.03:1，加深到 5.22:1 以满足 4.5:1 -->
+    <color name="text_secondary">#74637C</color>
+    <!-- accent 当文字色时的深版：白 7.25:1 / #FFF7FB 6.89:1 / #FFE3EE 6.03:1 -->
+    <color name="accent_ink">#A61E46</color>
+    <!-- 错误提示色，与 accent_ink 同值，供后续错误文案直接 @color/error 使用 -->
+    <color name="error">#A61E46</color>
 </resources>

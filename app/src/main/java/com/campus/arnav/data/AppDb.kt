@@ -5,7 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 class AppDb private constructor(ctx: Context) :
-    SQLiteOpenHelper(ctx.applicationContext, "zhijia.db", null, 2) {
+    SQLiteOpenHelper(ctx.applicationContext, "zhijia.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -51,10 +51,12 @@ class AppDb private constructor(ctx: Context) :
                 _id INTEGER PRIMARY KEY AUTOINCREMENT,
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
-                ts INTEGER NOT NULL
+                ts INTEGER NOT NULL,
+                sid TEXT DEFAULT ''
             )"""
         )
         createJwTables(db)
+        createChatSchema(db)
     }
 
     /** 教务同步来的考试与成绩；整行原文另存 raw，便于“一字不差”地回看。 */
@@ -90,6 +92,8 @@ class AppDb private constructor(ctx: Context) :
             runCatching { db.execSQL("ALTER TABLE courses ADD COLUMN week_text TEXT DEFAULT ''") }
             createJwTables(db)
         }
+        // v2 → v3：聊天消息按会话拆分（历史消息全部归入 legacy 会话）
+        if (oldVersion < 3) migrateChatV3(db)
     }
 
     companion object {
@@ -98,6 +102,49 @@ class AppDb private constructor(ctx: Context) :
 
         fun get(ctx: Context): AppDb = inst ?: synchronized(this) {
             inst ?: AppDb(ctx).also { inst = it }
+        }
+
+        /** 会话表 + sid 索引（v3）。迁移与离线自检共用同一段 DDL，避免两处结构漂移。 */
+        internal fun createChatSchema(db: SQLiteDatabase) {
+            db.execSQL(
+                """CREATE TABLE IF NOT EXISTS chat_sessions(
+                    _id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sid TEXT UNIQUE,
+                    title TEXT,
+                    created_at INTEGER,
+                    updated_at INTEGER
+                )"""
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_chat_sid ON chats(sid)")
+        }
+
+        /**
+         * v2 → v3 迁移：给老消息加 `sid` 列并统一标成 `legacy`，再按最早/最晚消息时间建一条
+         * 「历史记录」会话。重复执行安全（列已存在时 ALTER 会被吞掉，INSERT 用 OR IGNORE）。
+         */
+        internal fun migrateChatV3(db: SQLiteDatabase) {
+            runCatching { db.execSQL("ALTER TABLE chats ADD COLUMN sid TEXT") }
+            db.execSQL("UPDATE chats SET sid='legacy' WHERE sid IS NULL OR sid=''")
+            createChatSchema(db)
+            val now = System.currentTimeMillis()
+            var first = now
+            var last = now
+            var count = 0
+            db.rawQuery("SELECT COUNT(*), MIN(ts), MAX(ts) FROM chats WHERE sid='legacy'", null).use { c ->
+                if (c.moveToFirst()) {
+                    count = c.getInt(0)
+                    if (count > 0) {
+                        first = c.getLong(1)
+                        last = c.getLong(2)
+                    }
+                }
+            }
+            if (count > 0) {
+                db.execSQL(
+                    "INSERT OR IGNORE INTO chat_sessions(sid,title,created_at,updated_at) VALUES('legacy','历史记录',?,?)",
+                    arrayOf<Any>(first, last)
+                )
+            }
         }
     }
 }

@@ -52,6 +52,18 @@ object SettingsStore {
     private const val LEGACY_FLAG = "legacy_cleared_v1"
 
     /**
+     * 联网搜索用的模型链（2026-11-27 实测，见 `_search_fix.md`）：
+     * - 四个模型在带 `enable_search` 时都能拿到外部信息；
+     * - `qwen-max` 实测在 `response_format=json_object` 下只输出一串数字、跑满 token，故意不放进链里。
+     */
+    private val SEARCH_MODELS = listOf(
+        "qwen-plus",              // 质量最好：实时天气/通知都能给出具体数值与来源标注
+        "qwen-flash",             // 最快（1.7–2.9 s），回答略简
+        "deepseek-v4.1-flash",    // 细节最全；reasoning 吃 token，兜底用
+        "deepseek-v4-flash-0731"  // 可用但最慢（3–5.6 s）
+    )
+
+    /**
      * 一次性清掉旧版残留的 Key / 接口地址 / 代理配置（不碰学期、提醒、教务登录等其他设置）。
      *
      * 只在首次调用时真正删除；`apply()` 会同步更新内存中的 map，所以紧跟其后的读取
@@ -119,6 +131,26 @@ object SettingsStore {
 
     /** 聊天用的模型：内置云端通道。 */
     fun chatProvider(ctx: Context): Provider = builtin(ctx)
+
+    /**
+     * 联网问答用的通道：`enable_search` 只对部分模型放量，且 json_object 输出在个别模型上不可靠，
+     * 所以单独挂一条实测过的模型链；地址 / Key 仍沿用内置通道（[builtin]）。
+     */
+    fun searchProvider(ctx: Context): Provider {
+        clearLegacy(ctx)
+        return searchProvider()
+    }
+
+    /** [searchProvider] 的无 Context 版本：模型链是构建期常量，net 层（[com.campus.arnav.net.LlmClient]）用这个。 */
+    fun searchProvider(): Provider = Provider(
+        BuildConfig.DASHSCOPE_BASE,
+        BuildConfig.DASHSCOPE_KEY,
+        SEARCH_MODELS.first(),
+        models = SEARCH_MODELS.drop(1)
+    )
+
+    /** 联网搜索的模型顺序（只读，供自检 / 报告引用）。 */
+    fun searchModels(): List<String> = SEARCH_MODELS
 
     /** 课前 / 活动前提醒是否开启（默认开）。 */
     fun remindEnabled(ctx: Context): Boolean =

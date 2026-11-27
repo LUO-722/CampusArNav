@@ -1,6 +1,7 @@
-package com.campus.arnav.debug
+﻿package com.campus.arnav.debug
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import com.campus.arnav.agent.AgentEngine
 import com.campus.arnav.agent.NoticeExtractor
 import com.campus.arnav.agent.OfflineExtractor
@@ -9,12 +10,15 @@ import com.campus.arnav.core.CoordTransform
 import com.campus.arnav.core.GeoUtils
 import com.campus.arnav.data.AppDb
 import com.campus.arnav.data.AuthStore
+import com.campus.arnav.data.ChatMsg
+import com.campus.arnav.data.ChatStore
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.Activity
 import com.campus.arnav.data.ScheduleLogic
 import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.kb.KbIndex
 import com.campus.arnav.net.JwxtClient
+import java.io.File
 import org.json.JSONObject
 
 /**
@@ -463,6 +467,96 @@ object SelfCheck {
                 throw Fail("偏移方向 ${num(dir)}°，应为 282°±3°（反向或沿子午线说明经纬写反/只转了一维）")
             }
             true
+        }
+        check("会话增删查") {
+            // 用 cacheDir 里的临时库跑真实的迁移与 ChatStore 实现，绝不碰用户真实聊天库。
+            val f = File(ctx.cacheDir, "selfcheck_chat_a.db")
+            SQLiteDatabase.deleteDatabase(f)   // 连 -journal/-wal 一起清掉，避免上次自检中断留下的半截库
+            val d = SQLiteDatabase.openOrCreateDatabase(f, null)
+            try {
+                // 1) 造一个 v2 形状的老库（chats 没有 sid 列），跑 v3 迁移
+                d.execSQL(
+                    "CREATE TABLE chats(_id INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT NOT NULL, " +
+                        "content TEXT NOT NULL, ts INTEGER NOT NULL)"
+                )
+                d.execSQL("INSERT INTO chats(role,content,ts) VALUES('user','老消息一',5000)")
+                d.execSQL("INSERT INTO chats(role,content,ts) VALUES('assistant','老回答二',7000)")
+                AppDb.migrateChatV3(d)
+                val legacyRows = d.rawQuery("SELECT COUNT(*) FROM chats WHERE sid='legacy'", null).use {
+                    if (it.moveToFirst()) it.getInt(0) else 0
+                }
+                if (legacyRows != 2) {
+                    throw Fail("v3 迁移没把老消息挂到 legacy 会话（应 2 条，实际 $legacyRows 条：升级后历史对话会丢）")
+                }
+                val legacy = ChatStore.sessionList(d).firstOrNull { it.id == ChatStore.LEGACY_SID }
+                    ?: throw Fail("v3 迁移没建出「历史记录」会话（聊天记录页会看不到旧对话）")
+                if (legacy.title != "历史记录" || legacy.createdAt != 5000L || legacy.updatedAt != 7000L) {
+                    throw Fail(
+                        "「历史记录」会话不对：标题「${legacy.title}」时间 ${legacy.createdAt}-${legacy.updatedAt}" +
+                            "（应 历史记录 / 5000-7000：会话时间要取老消息的最早与最晚）"
+                    )
+                }
+                // 2) 两个会话各写一条：验证列表排序、消息不串、删干净
+                val s1 = ChatStore.createSession(d, 8000L)
+                ChatStore.addTo(d, s1, ChatMsg("user", "第一句"), 8100L)
+                val s2 = ChatStore.createSession(d, 9000L)
+                ChatStore.addTo(d, s2, ChatMsg("user", "第二句"), 9100L)
+                val list = ChatStore.sessionList(d)
+                if (list.firstOrNull()?.id != s2) {
+                    throw Fail("会话列表没按更新时间倒序（最近说话的「第二句」不在最前：列表会乱序）")
+                }
+                val m1 = ChatStore.messagesIn(d, s1)
+                if (m1.size != 1 || m1[0].content != "第一句") {
+                    throw Fail("会话消息串了：s1 里应只有 1 条「第一句」，实际 ${m1.size} 条")
+                }
+                if (ChatStore.messagesIn(d, s2).firstOrNull()?.content != "第二句") {
+                    throw Fail("会话消息串了：s2 里读不到「第二句」（sid 过滤失效）")
+                }
+                ChatStore.deleteIn(d, s1)
+                if (ChatStore.messagesIn(d, s1).isNotEmpty() || ChatStore.sessionList(d).any { it.id == s1 }) {
+                    throw Fail("删除会话后消息或会话行还在（删不干净，聊天记录越积越多）")
+                }
+                true
+            } finally {
+                runCatching { d.close() }
+                runCatching { SQLiteDatabase.deleteDatabase(f) }
+            }
+        }
+        check("会话标题截断") {
+            val f = File(ctx.cacheDir, "selfcheck_chat_b.db")
+            SQLiteDatabase.deleteDatabase(f)   // 连 -journal/-wal 一起清掉，避免上次自检中断留下的半截库
+            val d = SQLiteDatabase.openOrCreateDatabase(f, null)
+            try {
+                d.execSQL(
+                    "CREATE TABLE chats(_id INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT NOT NULL, " +
+                        "content TEXT NOT NULL, ts INTEGER NOT NULL, sid TEXT DEFAULT '')"
+                )
+                AppDb.createChatSchema(d)
+                val long = "请帮我看看明天下午的课表和活动安排有没有时间冲突谢谢"
+                if (long.length <= ChatStore.TITLE_MAX) {
+                    throw Fail("测试文本只有 ${long.length} 字，不足以验证 ${ChatStore.TITLE_MAX} 字截断")
+                }
+                val sid = ChatStore.createSession(d, 1000L)
+                ChatStore.addTo(d, sid, ChatMsg("user", long), 1100L)
+                val title = ChatStore.sessionList(d).first { it.id == sid }.title
+                if (title.length != ChatStore.TITLE_MAX) {
+                    throw Fail(
+                        "标题长度 ${title.length}，应为 ${ChatStore.TITLE_MAX}" +
+                            "（第 ${ChatStore.TITLE_MAX + 1} 个字起要截掉，否则列表行撑爆）"
+                    )
+                }
+                if (title != long.substring(0, ChatStore.TITLE_MAX)) {
+                    throw Fail("标题不是首条 user 消息的前 ${ChatStore.TITLE_MAX} 字：「$title」")
+                }
+                ChatStore.addTo(d, sid, ChatMsg("assistant", "后面这条长得多的回答不应该改掉会话标题"), 1200L)
+                if (ChatStore.sessionList(d).first { it.id == sid }.title != title) {
+                    throw Fail("assistant 消息把会话标题改了（标题只该由首条用户消息定）")
+                }
+                true
+            } finally {
+                runCatching { d.close() }
+                runCatching { SQLiteDatabase.deleteDatabase(f) }
+            }
         }
         return out
     }

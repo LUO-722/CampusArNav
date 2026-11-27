@@ -11,10 +11,36 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-<uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <!-- 设闹钟走系统时钟的「新建闹钟」界面；失败时 App 会明确提示原因（该权限只是声明，
+         Android 12+ 真正生效还需要系统设置里的「闹钟和提醒」授权）。 -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
     <uses-feature android:name="android.hardware.sensor.compass" android:required="false" />
+
+    <!-- Android 11+ 包可见性（<queries>）：看不到目标 App 时 resolveActivity 会直接返回 null，
+         表现成「明明装了时钟/地图，App 却说没有」。
+         - SET_ALARM / SET_TIMER / SHOW_ALARMS：Agent 设闹钟前用 resolveActivity 判断本机有没有时钟应用；
+         - VIEW geo:/https:：导航「拉起地图 App 看路线」「用浏览器打开」同理。 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SHOW_ALARMS" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="false"

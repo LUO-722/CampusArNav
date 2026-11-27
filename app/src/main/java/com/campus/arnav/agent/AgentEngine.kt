@@ -68,7 +68,9 @@ object AgentEngine {
             )
         }
 
-        val (system, kbHits) = buildSystem(ctx, userText)
+        val kbHits = KbIndex.search(ctx, userText, 4)
+        val web = shouldSearch(ctx, userText, kbHits)
+        val system = buildSystem(ctx, kbHits, web)
         val msgs = ArrayList<ChatMsg>()
         msgs.add(ChatMsg("system", system))
         // 只带最近 8 条，避免上下文过长；聊天页传入的 history 可能已包含本轮 user 消息，避免重复追加
@@ -79,7 +81,6 @@ object AgentEngine {
             msgs.add(ChatMsg("user", userText))
         }
 
-        val web = shouldSearch(ctx, userText, kbHits)
         val raw = LlmClient.chat(provider, msgs, jsonMode = true, search = web)
         return handle(ctx, raw, kbHits)
     }
@@ -93,7 +94,8 @@ object AgentEngine {
                 emptyList(), emptyList()
             )
         }
-        val (system, kbHits) = buildSystem(ctx, userText)
+        val kbHits = KbIndex.search(ctx, userText, 4)
+        val system = buildSystem(ctx, kbHits, false)
         val raw = LlmClient.visionChat(provider, system, history, userText, imageBase64)
         return handle(ctx, raw, kbHits)
     }
@@ -104,16 +106,28 @@ object AgentEngine {
      */
     private fun shouldSearch(ctx: Context, userText: String, hits: List<KbIndex.Hit>): Boolean {
         if (!NetState.online(ctx)) return false
+        val q = userText.trim()
+        if (q.length < 2) return false
+        // 一看就知道是「校园知识库外」的问法：直接联网，不再等命中分数
+        val external = listOf(
+            "搜索", "查一下", "搜一下", "网上", "百度", "外面", "外面的事",
+            "天气", "气温", "下雨", "台风", "新闻", "消息", "时事",
+            "今天", "明天", "昨天", "最近", "最新", "现在", "本周", "这周", "下周",
+            "新闻", "通知", "公告", "通告", "放假", "调课", "停课", "开学",
+            "讲座", "比赛", "竞赛", "活动", "招聘", "实习", "分数线", "招生政策",
+            "谁", "什么时候", "怎么去", "高铁", "地铁", "公交", "外卖", "快递"
+        )
+        if (external.any { q.contains(it) }) return true
+        // 否则看知识库命中强度：弱的就联网补一次
         val best = hits.maxOfOrNull { it.score } ?: 0.0
-        if (hits.isEmpty() || best < 3.0) return true
-        val q = userText.lowercase()
-        val timeWords = listOf("今天", "明天", "昨天", "最近", "最新", "新闻", "通知", "公告",
-            "放假", "活动", "比赛", "讲座", "天气", "现在", "本周", "这周", "下周", "几号", "几点")
-        return timeWords.any { q.contains(it) }
+        return hits.isEmpty() || best < 4.5
     }
 
-    private fun buildSystem(ctx: Context, userText: String): Pair<String, List<KbIndex.Hit>> {
-        val kbHits = KbIndex.search(ctx, userText, 4)
+    private fun buildSystem(
+        ctx: Context,
+        kbHits: List<KbIndex.Hit>,
+        web: Boolean
+    ): String {
         val kbContext = if (kbHits.isEmpty()) "" else kbHits.joinToString("\n\n") { i ->
             "[${i.title}] ${i.text.take(700)}"
         }
@@ -126,24 +140,30 @@ object AgentEngine {
             append(ScheduleLogic.weekdayName(wd))
             append("，$wk 周，${ScheduleLogic.semesterName()}）。\n")
             append("你可以：回答校园制度/办事/楼宇问题、查课表、录入活动、添加课程、设闹钟、导航。\n")
-            append("涉及学校事实必须优先依据下面的【知识库资料】；资料里没有的，可以用联网搜索到的公开信息回答，" +
-                "并在 reply 末尾用「（来源：网站或栏目，日期）」标一句；搜不到就直说没有，不要编造。\n")
+            append("回答顺序：先看下面的【知识库资料】；资料里没有的，用联网检索到的公开信息回答，" +
+                "并在 reply 末尾用「（来源：网站或栏目，日期）」标一句；两边都没有就直说没查到，不要编造。\n")
+            if (web) {
+                append("本轮已经开启联网检索（服务端会把检索结果一起给你），所以「知识库里没有」不等于「查不到」：" +
+                    "凡是能查到的实时信息（天气、最新通知、新闻）请直接答，不要回答「知识库没有」。\n")
+            }
             append(ACTION_SPEC).append("\n\n")
             append("输出必须是严格 json：{\"reply\":\"给用户看的回答\",\"actions\":[...]}。").append("\n")
             append("动作只是补充，能直接回答就不要加动作；用户明确要求录入/设闹钟时才加。\n")
-        append("reply 必须是完整的中文句子（不要只回一个词、不要照抄用户原话、不要加引号）；知识库里没有的就直说没有。\n")
+            append("reply 里不要替动作打包票（不要说「已经设好/已经加上」），执行结果由客户端校验后另行提示。\n")
+            append("reply 必须是完整的中文句子（不要只回一个词、不要照抄用户原话、不要加引号）。\n")
             if (kbContext.isNotBlank()) {
                 append("\n【知识库资料】\n").append(kbContext).append("\n")
             }
             append("\n【当前课表摘要】\n")
             append(scheduleSummary(ctx))
         }
-        return system to kbHits
+        return system
     }
 
     private fun handle(ctx: Context, raw: String, kbHits: List<KbIndex.Hit>): Result {
         val parsed = parse(raw)
         val actionLogs = ArrayList<String>()
+        val outcomes = ArrayList<ActionExecutor.Outcome>()
         val pending = ArrayList<JSONObject>()
         if (parsed != null) {
             val arr = parsed.optJSONArray("actions") ?: JSONArray()
@@ -152,14 +172,42 @@ object AgentEngine {
                 if (o.optString("type") in WRITE_ACTIONS) {
                     pending.add(o)
                 } else {
-                    actionLogs.add(ActionExecutor.execute(ctx, o))
+                    val oc = ActionExecutor.executeOutcome(ctx, o)
+                    outcomes.add(oc)
+                    actionLogs.add(oc.message)
                 }
             }
             val reply = parsed.optString("reply").ifBlank { "已处理。" }
-            return Result(reply, actionLogs, kbHits.map { it.title }, pending)
+            return Result(honestReply(reply, outcomes), actionLogs, kbHits.map { it.title }, pending)
         }
         // 模型没按 JSON 返回时，退化为纯文本回答
         return Result(cleanText(raw), emptyList(), kbHits.map { it.title })
+    }
+
+    /**
+     * 让回复和动作结果**不互相矛盾**。
+     *
+     * 模型经常先写好「已经改成 9:30 的闹钟」，再附带一个动作；动作失败时如果原样显示，
+     * 用户看到的就是「说成功了、其实没成功」。所以：
+     *  - 有失败 → 正文开头挂一句提示，末尾逐条列出失败原因；
+     *  - 全部失败 → 模型那句话基本是空描述，整段换成固定模板（附原因），不给它继续骗人的机会。
+     */
+    private fun honestReply(reply: String, outcomes: List<ActionExecutor.Outcome>): String {
+        if (outcomes.isEmpty()) return reply
+        val failures = outcomes.withIndex().filter { !it.value.ok }
+        if (failures.isEmpty()) return reply
+        if (failures.size == outcomes.size) {
+            val reason = failures.joinToString("；") { it.value.message }
+            return "这次没能替你完成动作：$reason。可以直接在 App 里手动加，或者稍后重试。"
+        }
+        val head = if (failures.size == 1) "（有一项动作没有成功）" else "（有 ${failures.size} 项动作没有成功）"
+        return buildString {
+            append(head).append("\n")
+            append(reply.trim())
+            for (f in failures) {
+                append("\n· 上面第 ${f.index + 1} 个动作没成功：${f.value.message}")
+            }
+        }
     }
 
     private fun parse(raw: String): JSONObject? {

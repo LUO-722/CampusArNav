@@ -1,5 +1,7 @@
 package com.campus.arnav.agent
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.provider.AlarmClock
@@ -21,6 +23,14 @@ object ActionExecutor {
 
     private const val TAG = "ActionExecutor"
 
+    /**
+     * 闹钟两句话术固定在这里：既要告诉用户「失败了」，又要告诉用户**怎么自己补上**。
+     * 「闹钟和提醒」是 Android 12+ 的「闹钟与提醒」特殊权限，名字与系统设置里一致，用户能照着找。
+     */
+    private const val ALARM_DENIED =
+        "系统拒绝设置闹钟：请在系统设置里给「科文智嘉」打开「闹钟和提醒」权限，或装最新版"
+    private const val ALARM_NO_APP = "这台手机没有系统闹钟应用，请在时钟 App 里手动添加"
+
     /** 协议键 → 中文名，给用户看的失败提示用；与 AgentEngine.describe 的口径保持一致。 */
     private val ACTION_NAMES = mapOf(
         "add_course" to "加课",
@@ -33,23 +43,39 @@ object ActionExecutor {
         "delete_activity" to "删活动"
     )
 
-    fun execute(ctx: Context, action: JSONObject): String {
+    /**
+     * 动作执行结果。
+     *
+     * [ok] 是**事实**（动作到底成没成），[message] 才是给用户看的那句话。
+     * 两者必须分开：以前只返回一句话，模型「我已经改好了」这种措辞就能盖住失败，
+     * 结果用户在界面上看到的是成功、实际什么都没发生。
+     *
+     * @param kind 动作类型（`set_alarm` 等），便于调用方按类型补文案
+     */
+    data class Outcome(val ok: Boolean, val kind: String, val message: String)
+
+    /** 兼容旧调用：只要那句给人看的文案（失败时也返回说明，不抛异常）。 */
+    fun execute(ctx: Context, action: JSONObject): String = executeOutcome(ctx, action).message
+
+    /** 执行一个动作，同时把「成没成功」交给调用方，由它决定回复该怎么写。 */
+    fun executeOutcome(ctx: Context, action: JSONObject): Outcome {
         val type = action.optString("type").trim()
         return try {
             when (type) {
                 "add_course" -> addCourse(ctx, action)
                 "add_activity" -> addActivity(ctx, action)
                 "set_alarm" -> setAlarm(ctx, action)
-                "search_kb" -> searchKb(ctx, action)
-                "list_schedule" -> listSchedule(ctx, action)
+                // 只读动作：执行完就算成功，没命中只是「没查到」，不是失败
+                "search_kb" -> Outcome(true, type, searchKb(ctx, action))
+                "list_schedule" -> Outcome(true, type, listSchedule(ctx, action))
                 "navigate" -> navigate(ctx, action)
                 "delete_course" -> deleteCourse(ctx, action)
                 "delete_activity" -> deleteActivity(ctx, action)
-                else -> "未识别的动作：$type"
+                else -> Outcome(false, type, "未识别的动作：$type")
             }
         } catch (e: Exception) {
             logFailure(type, e)
-            humanize(type, e)
+            Outcome(false, type, humanize(type, e))
         }
     }
 
@@ -73,9 +99,9 @@ object ActionExecutor {
         Log.e(TAG, "action=$type failed: ${e.javaClass.simpleName}", e)
     }
 
-    private fun addCourse(ctx: Context, a: JSONObject): String {
+    private fun addCourse(ctx: Context, a: JSONObject): Outcome {
         val name = a.optString("name").ifBlank { a.optString("course") }.trim()
-        if (name.isBlank()) return "添加课程失败：没有课程名"
+        if (name.isBlank()) return Outcome(false, "add_course", "添加课程失败：没有课程名")
         val wd = a.optInt("weekday", 1).coerceIn(1, 7)
         val st = a.optInt("start_period", a.optInt("start", 1)).coerceIn(1, 12)
         val en = a.optInt("end_period", a.optInt("end", st)).coerceIn(st, 12)
@@ -85,15 +111,21 @@ object ActionExecutor {
         val dup = CourseStore.courses(ctx).any {
             it.name == name && it.weekday == wd && it.startPeriod == st && it.endPeriod == en
         }
-        if (dup) return "课程表里已有「$name」：周${ScheduleLogic.weekdayName(wd)} 第 $st-$en 节，未重复添加。"
+        if (dup) return Outcome(
+            true, "add_course",
+            "课程表里已有「$name」：周${ScheduleLogic.weekdayName(wd)} 第 $st-$en 节，未重复添加。"
+        )
         CourseStore.addCourse(
             ctx, name, teacher, location, wd, st, en, weeks,
             color = 0xFFF8AECB.toInt(), source = "agent"
         )
-        return "已添加到课程表：$name，周${ScheduleLogic.weekdayName(wd)} 第 $st-$en 节，$weeks 周，$location"
+        return Outcome(
+            true, "add_course",
+            "已添加到课程表：$name，周${ScheduleLogic.weekdayName(wd)} 第 $st-$en 节，$weeks 周，$location"
+        )
     }
 
-    private fun addActivity(ctx: Context, a: JSONObject): String {
+    private fun addActivity(ctx: Context, a: JSONObject): Outcome {
         val title = a.optString("title").ifBlank { "未命名活动" }.trim()
         val rawDate = a.optString("date").trim()
         val date: String
@@ -102,7 +134,10 @@ object ActionExecutor {
         } else {
             val normalized = NoticeExtractor.normalizeDate(rawDate)
             val parsed = ScheduleLogic.parseDate(normalized)
-                ?: return "录入活动失败：日期「$rawDate」无法识别，应为 yyyy-MM-dd。"
+                ?: return Outcome(
+                    false, "add_activity",
+                    "录入活动失败：日期「$rawDate」无法识别，应为 yyyy-MM-dd。"
+                )
             date = ScheduleLogic.formatDate(parsed)
         }
         val st = NoticeExtractor.normalizeTime(a.optString("start_time"))
@@ -115,7 +150,7 @@ object ActionExecutor {
         val dup = CourseStore.activities(ctx).any {
             it.title == title && it.date == date && it.startTime == st
         }
-        if (dup) return "活动「$title」$date $st 已在课表里，未重复录入。"
+        if (dup) return Outcome(true, "add_activity", "活动「$title」$date $st 已在课表里，未重复录入。")
         val wk = ScheduleLogic.weekOf(date)
         val conflicts = if (st.isNotBlank() && en.isNotBlank()) {
             val skips = CourseStore.skipsFor(ctx, date)
@@ -123,41 +158,62 @@ object ActionExecutor {
         } else emptyList()
         CourseStore.addActivity(ctx, draft, conflicts.isNotEmpty(), "agent")
         return if (conflicts.isEmpty()) {
-            "已录入活动：$title，$date $st-$en，${draft.location}"
+            Outcome(true, "add_activity", "已录入活动：$title，$date $st-$en，${draft.location}")
         } else {
-            "已录入活动：$title（第 $wk 周）。与 ${conflicts.joinToString("、") { it.name }} 时间冲突，已同时保留并标记冲突。"
+            Outcome(
+                true, "add_activity",
+                "已录入活动：$title（第 $wk 周）。与 ${conflicts.joinToString("、") { it.name }} 时间冲突，已同时保留并标记冲突。"
+            )
         }
     }
 
-    private fun setAlarm(ctx: Context, a: JSONObject): String {
+    private fun setAlarm(ctx: Context, a: JSONObject): Outcome {
         val h = a.optInt("hour", -1)
         val m = a.optInt("minute", 0).coerceIn(0, 59)
-        if (h !in 0..23) return "设置闹钟失败：小时不合法"
+        if (h !in 0..23) return Outcome(false, "set_alarm", "设置闹钟失败：小时不合法")
         val label = a.optString("label", "智嘉提醒")
+        val whenText = timeLabel(h, m)
         val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
             putExtra(AlarmClock.EXTRA_HOUR, h)
             putExtra(AlarmClock.EXTRA_MINUTES, m)
             putExtra(AlarmClock.EXTRA_MESSAGE, label)
+            // false = 打开系统闹钟页让用户确认，不偷懒静默建（静默建失败时用户完全无感）
             putExtra(AlarmClock.EXTRA_SKIP_UI, false)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // 非 Activity 的 Context 调 startActivity 必须带 NEW_TASK，否则直接崩；
+            // 从 Activity 里调就不加，保证闹钟页返回键能回到 App 自己
+            if (ctx !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         if (intent.resolveActivity(ctx.packageManager) == null) {
-            return String.format(
-                Locale.US,
-                "这台设备没有可调起的系统时钟应用，请在手机自带的「时钟」里手动新建 %02d:%02d（%s）。",
-                h, m, label
-            )
+            return Outcome(false, "set_alarm", ALARM_NO_APP)
         }
         return try {
             ctx.startActivity(intent)
-            String.format(Locale.US, "已打开系统闹钟：%02d:%02d（%s）。请在时钟应用里确认保存。", h, m, label)
+            // 说「已提交」而不是「已设置好」：真正落库在系统时钟里，App 这边无法确认
+            Outcome(true, "set_alarm", "已提交给系统闹钟：$whenText（请在闹钟列表确认）")
         } catch (e: SecurityException) {
             logFailure("set_alarm", e)
-            String.format(Locale.US, "系统没给「智嘉」设闹钟的权限（要建的是 %02d:%02d）。请在手机自带的「时钟」里手动新建这个闹钟。", h, m)
-        } catch (e: android.content.ActivityNotFoundException) {
+            Outcome(false, "set_alarm", ALARM_DENIED)
+        } catch (e: ActivityNotFoundException) {
             logFailure("set_alarm", e)
-            String.format(Locale.US, "这台设备没有可调起的系统时钟应用，请在手机自带的「时钟」里手动新建 %02d:%02d（%s）。", h, m, label)
+            Outcome(false, "set_alarm", ALARM_NO_APP)
         }
+    }
+
+    /** 12 小时制 + 时段前缀，如「早上 9:30」「下午 2:00」，比裸 09:30 更像人话。 */
+    private fun timeLabel(h: Int, m: Int): String {
+        val ampm = when (h) {
+            in 0..4 -> "凌晨"
+            in 5..10 -> "早上"
+            in 11..12 -> "中午"
+            in 13..17 -> "下午"
+            else -> "晚上"
+        }
+        val h12 = when {
+            h == 0 -> 12
+            h > 12 -> h - 12
+            else -> h
+        }
+        return String.format(Locale.US, "%s %d:%02d", ampm, h12, m)
     }
 
     private fun searchKb(ctx: Context, a: JSONObject): String {
@@ -189,37 +245,40 @@ object ActionExecutor {
         return sb.toString().trim()
     }
 
-    private fun navigate(ctx: Context, a: JSONObject): String {
+    private fun navigate(ctx: Context, a: JSONObject): Outcome {
         val place = a.optString("place").ifBlank { a.optString("name") }
-        if (place.isBlank()) return "导航失败：没有目的地"
+        if (place.isBlank()) return Outcome(false, "navigate", "导航失败：没有目的地")
         val list = RouteRepository.buildings(ctx)
         val b = list.firstOrNull { it.name.contains(place) || place.contains(it.name) }
             ?: list.firstOrNull { it.name.contains(place.take(2)) }
         return if (b == null) {
-            "没找到「$place」。可导航的地点有：" + list.take(8).joinToString("、") { it.name } + " 等。"
+            Outcome(
+                false, "navigate",
+                "没找到「$place」。可导航的地点有：" + list.take(8).joinToString("、") { it.name } + " 等。"
+            )
         } else {
             ctx.startActivity(
                 Intent(ctx, ArNavActivity::class.java)
                     .putExtra("buildingId", b.id)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
-            "已打开 ${b.name} 的 AR 步行导航（${b.subtitle}）。"
+            Outcome(true, "navigate", "已打开 ${b.name} 的 AR 步行导航（${b.subtitle}）。")
         }
     }
 
-    private fun deleteCourse(ctx: Context, a: JSONObject): String {
+    private fun deleteCourse(ctx: Context, a: JSONObject): Outcome {
         val name = a.optString("name").trim()
-        if (name.isBlank()) return "删除失败：缺少课程名"
+        if (name.isBlank()) return Outcome(false, "delete_course", "删除失败：缺少课程名")
         val hit = CourseStore.courses(ctx).firstOrNull {
             it.name.contains(name) || name.contains(it.name)
-        } ?: return "没有找到课程「$name」"
+        } ?: return Outcome(false, "delete_course", "没有找到课程「$name」")
         CourseStore.deleteCourse(ctx, hit.id)
-        return "已删除课程：${hit.name}"
+        return Outcome(true, "delete_course", "已删除课程：${hit.name}")
     }
 
-    private fun deleteActivity(ctx: Context, a: JSONObject): String {
+    private fun deleteActivity(ctx: Context, a: JSONObject): Outcome {
         val title = a.optString("title").trim()
-        if (title.isBlank()) return "删除活动失败：缺少活动名"
+        if (title.isBlank()) return Outcome(false, "delete_activity", "删除活动失败：缺少活动名")
         val rawDate = a.optString("date").trim()
         val date = if (rawDate.isBlank()) "" else {
             ScheduleLogic.parseDate(NoticeExtractor.normalizeDate(rawDate))
@@ -229,8 +288,14 @@ object ActionExecutor {
         val hit = all.firstOrNull {
             (it.title.contains(title) || title.contains(it.title)) &&
                 (date.isBlank() || it.date == date)
-        } ?: return "没有找到活动「$title」${if (date.isNotBlank()) "（$date）" else ""}"
+        } ?: return Outcome(
+            false, "delete_activity",
+            "没有找到活动「$title」${if (date.isNotBlank()) "（$date）" else ""}"
+        )
         CourseStore.deleteActivity(ctx, hit.id)
-        return "已删除活动：${hit.title}（${hit.date} ${hit.startTime}-${hit.endTime}）"
+        return Outcome(
+            true, "delete_activity",
+            "已删除活动：${hit.title}（${hit.date} ${hit.startTime}-${hit.endTime}）"
+        )
     }
 }

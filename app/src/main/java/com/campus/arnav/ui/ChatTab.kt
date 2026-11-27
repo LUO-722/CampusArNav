@@ -1,13 +1,17 @@
 package com.campus.arnav.ui
 
+import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
 import android.net.Uri
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -18,16 +22,23 @@ import com.campus.arnav.R
 import com.campus.arnav.agent.ActionExecutor
 import com.campus.arnav.agent.AgentEngine
 import com.campus.arnav.data.ChatMsg
+import com.campus.arnav.data.ChatSession
 import com.campus.arnav.data.ChatStore
 import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.kb.KbIndex
 import com.campus.arnav.ocr.LocalOcr
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * ④ 聊天：知识库问答 + Agent 决策（录活动/加课/闹钟/导航建议）；图片先本机 OCR 识文字再提问。
  *
  * 云端通道内置（无需任何配置），有网走 [AgentEngine]；没网或云端失败也不报错，
  * 直接回落本机 BM25 知识库回答，功能不会「死」。
+ *
+ * 会话模型：构造时 `ChatStore.newSession(ctx)` 开一个新会话，当前会话为空就只显示欢迎语（不落库）；
+ * 顶部「记录」按钮回看历史会话（只读，可删除非当前会话），「返回」回到当前对话。
  */
 class ChatTab(
     private val ctx: Context,
@@ -45,11 +56,29 @@ class ChatTab(
     private var sending = false
     private val greeting = "你好，我是智嘉。可以问我校园制度、办事流程、楼栋位置，也能帮你录活动、加课、设闹钟、找自习的地方。"
 
+    /** 当前会话 sid（构造时新开）。 */
+    private lateinit var sessionId: String
+    private lateinit var recordBtn: Button
+    private lateinit var clearBtn: Button
+    private lateinit var inputRow: LinearLayout
+
+    /** true = 正在看历史会话（只读），底部输入行隐藏。 */
+    private var viewingHistory = false
+    private var viewingSid: String? = null
+
+    /** 当前打开的「聊天记录」对话框，删除后刷新时先关掉它。 */
+    private var listDialog: AlertDialog? = null
+
+    private val timeFmt = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+
     init {
         orientation = VERTICAL
         // 不铺纯色底，让 MainShell 的 #FFF1F7→#EDF7FF 渐变透出来
         setBackgroundColor(Color.TRANSPARENT)
         setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), padBottom)
+
+        // 每次进入新开一个会话；旧会话留在「记录」里
+        sessionId = ChatStore.newSession(ctx)
 
         val head = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
@@ -66,16 +95,29 @@ class ChatTab(
             ctx.toast("云端模型随网络自动切换，无需配置；断网时自动用离线知识库。")
         }
         head.addView(titleBox, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = ctx.dp(10) })
-        head.addView(button(ctx, "清", ctx.color(R.color.bg_card), ctx.color(R.color.text_secondary)).apply {
+
+        // 「记录 / 返回」：白底圆角小按钮，和旁边「清」同色系
+        recordBtn = button(ctx, "记录", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
+            textSize = 11f
+            minHeight = ctx.dp(38)
+            minimumHeight = ctx.dp(38)
+            setPadding(ctx.dp(4), 0, ctx.dp(4), 0)
+            setOnClickListener { if (viewingHistory) backToCurrent() else openHistory() }
+        }
+        head.addView(recordBtn, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(38)).apply { leftMargin = ctx.dp(6) })
+
+        clearBtn = button(ctx, "清", ctx.color(R.color.bg_card), ctx.color(R.color.text_secondary)).apply {
             setOnClickListener {
-                confirm(ctx, "清空对话记录？", "只清空本机聊天，不影响课表和知识库。") {
-                    ChatStore.clear(ctx)
+                confirm(ctx, "清空对话记录？", "只清空当前这段对话，其它历史记录和课表、知识库都不受影响。") {
+                    ChatStore.delete(ctx, sessionId)
+                    sessionId = ChatStore.newSession(ctx)
                     history.clear()
                     msgBox.removeAllViews()
                     addBubble(greeting, true)
                 }
             }
-        }, LinearLayout.LayoutParams(ctx.dp(42), ctx.dp(38)).apply { leftMargin = ctx.dp(6) })
+        }
+        head.addView(clearBtn, LinearLayout.LayoutParams(ctx.dp(42), ctx.dp(38)).apply { leftMargin = ctx.dp(6) })
         addView(head)
 
         msgBox.orientation = VERTICAL
@@ -88,6 +130,7 @@ class ChatTab(
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+        inputRow = row
         input.maxLines = 4
         input.isFocusableInTouchMode = true
         input.isCursorVisible = true
@@ -127,19 +170,168 @@ class ChatTab(
         }
         addView(row)
 
-        val saved = ChatStore.recent(ctx, 30)
+        val saved = ChatStore.messages(ctx, sessionId).takeLast(30)
+        history.addAll(saved)
         if (saved.isEmpty()) {
             addBubble(greeting, true)
         } else {
-            saved.forEach {
-                history.add(it)
-                addBubble(it.content, it.role != "user")
-            }
+            saved.forEach { addBubble(it.content, it.role != "user") }
         }
         refreshProvider()
         scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
         bindImeInsets()
     }
+
+    // ---------------------------------------------------------------- 会话 / 记录
+
+    /** 打开「聊天记录」：自绘列表（ScrollView），当前会话标注「当前」，非当前可删。 */
+    private fun openHistory() {
+        val sessions = ChatStore.sessions(ctx)
+        if (sessions.isEmpty()) {
+            AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
+                .setTitle("聊天记录")
+                .setMessage("还没有历史记录，聊几句就会出现在这里。")
+                .setPositiveButton("知道了", null)
+                .show()
+            return
+        }
+        val box = LinearLayout(ctx).apply { orientation = VERTICAL }
+        val sv = ScrollView(ctx).apply {
+            isFillViewport = false
+            addView(box)
+        }
+        val listH = (sessions.size.coerceAtMost(6) * 62 + 8)
+        val container = LinearLayout(ctx).apply {
+            orientation = VERTICAL
+            setPadding(ctx.dp(14), ctx.dp(2), ctx.dp(14), 0)
+            addView(sv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(listH)))
+        }
+        val dialog = AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
+            .setTitle("聊天记录")
+            .setView(container)
+            .setNegativeButton("关闭", null)
+            .create()
+        listDialog = dialog
+
+        // 行点击需要 dialog 引用（先建 dialog，再往已经挂在容器里的 box 填行）
+        sessions.forEachIndexed { index, s ->
+            box.addView(historyRow(s) {
+                dialog.dismiss()
+                showHistorySession(s)
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+            if (index != sessions.lastIndex) box.addView(divider(ctx))
+        }
+        dialog.show()
+    }
+
+    private fun historyRow(s: ChatSession, onOpen: () -> Unit): View {
+        val count = try {
+            ChatStore.messages(ctx, s.id).size
+        } catch (e: Exception) {
+            0
+        }
+        val row = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, ctx.dp(10), 0, ctx.dp(10))
+            isClickable = true
+            setOnClickListener { onOpen() }
+        }
+        val col = LinearLayout(ctx).apply { orientation = VERTICAL }
+        col.addView(textView(ctx, if (s.title.isBlank()) "新对话" else s.title, 14f, ctx.color(R.color.text_primary), bold = true).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        })
+        col.addView(textView(ctx, "${fmt(s.updatedAt)} · ${count} 条", 11f, ctx.color(R.color.text_secondary)))
+        row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+
+        if (s.id == sessionId) {
+            row.addView(textView(ctx, "当前", 10f, ctx.color(R.color.accent_ink)).apply {
+                background = rounded(ctx, ctx.color(R.color.accent_soft), 8)
+                setPadding(ctx.dp(6), ctx.dp(2), ctx.dp(6), ctx.dp(2))
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = ctx.dp(6)
+            })
+        }
+        val del = textView(ctx, "删除", 11f, ctx.color(R.color.accent), bold = true).apply {
+            setPadding(ctx.dp(6), ctx.dp(4), 0, ctx.dp(4))
+            if (s.id == sessionId) {
+                // 当前会话不可删：置灰且不响应
+                setTextColor(ctx.color(R.color.text_secondary))
+                alpha = 0.45f
+            } else {
+                setOnClickListener {
+                    confirm(ctx, "删除这条记录？", "删除后不可恢复。") {
+                        ChatStore.delete(ctx, s.id)
+                        if (viewingSid == s.id) backToCurrent()
+                        // 先关掉旧列表再重新打开，避免两个对话框叠在一起
+                        listDialog?.dismiss()
+                        openHistory()
+                    }
+                }
+            }
+        }
+        row.addView(del, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            leftMargin = ctx.dp(4)
+        })
+        return row
+    }
+
+    /** 只读打开某条历史会话：顶部提示条 + 消息，隐藏底部输入行，按钮变「返回」。 */
+    private fun showHistorySession(s: ChatSession) {
+        viewingHistory = true
+        viewingSid = s.id
+        recordBtn.text = "返回"
+        clearBtn.visibility = View.GONE
+        inputRow.visibility = View.GONE
+        msgBox.removeAllViews()
+
+        val tip = textView(ctx, "历史记录 · 只读 · 点上方「返回」回到当前对话", 12f, ctx.color(R.color.accent_ink)).apply {
+            background = rounded(ctx, ctx.color(R.color.accent_soft), 12)
+            gravity = Gravity.CENTER
+            setPadding(ctx.dp(10), ctx.dp(8), ctx.dp(10), ctx.dp(8))
+        }
+        val tipWrap = LinearLayout(ctx).apply {
+            setPadding(0, 0, 0, ctx.dp(6))
+            addView(tip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        msgBox.addView(tipWrap)
+
+        val msgs = try {
+            ChatStore.messages(ctx, s.id)
+        } catch (e: Exception) {
+            emptyList()
+        }
+        if (msgs.isEmpty()) {
+            addBubble("（这条记录里没有消息）", true)
+        } else {
+            msgs.forEach { addBubble(it.content, it.role != "user") }
+        }
+        scroll.post { scroll.scrollTo(0, 0) }
+    }
+
+    /** 回到当前会话（退出只读）。 */
+    private fun backToCurrent() {
+        viewingHistory = false
+        viewingSid = null
+        recordBtn.text = "记录"
+        clearBtn.visibility = View.VISIBLE
+        inputRow.visibility = View.VISIBLE
+        msgBox.removeAllViews()
+        if (history.isEmpty()) {
+            addBubble(greeting, true)
+        } else {
+            history.forEach { addBubble(it.content, it.role != "user") }
+        }
+        scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    private fun fmt(ts: Long): String = timeFmt.format(Date(ts))
+
+    // ---------------------------------------------------------------- 输入 / 键盘
 
     /** 明确地弹一次键盘：不依赖系统「点一下就自动弹」的时序，避免第一次点击被重排吃掉。 */
     private fun showIme(target: android.view.View) {
@@ -206,13 +398,14 @@ class ChatTab(
             ctx.toast("正在回复，稍等再发图")
             return
         }
+        if (viewingHistory) return
         // 图片走本机 ML Kit OCR：离线、不上传、不依赖云端配置
         onPickImage()
     }
 
     /** MainShell 的图片选择器回调：先本机识文字，填进输入框，用户确认后再发送。 */
     fun onImagePicked(uri: Uri?) {
-        if (uri == null || sending) return
+        if (uri == null || sending || viewingHistory) return
         ctx.toast("正在本机识别图片文字（不上传）…")
         Thread {
             try {
@@ -234,11 +427,13 @@ class ChatTab(
 
     private fun send() {
         val text = input.text.toString().trim()
-        if (text.isEmpty() || sending) return
+        if (text.isEmpty() || sending || viewingHistory) return
         input.setText("")
+        val first = history.isEmpty()
         addBubble(text, false)
         history.add(ChatMsg("user", text))
-        ChatStore.append(ctx, "user", text)
+        ChatStore.add(ctx, sessionId, ChatMsg("user", text))
+        if (first) ChatStore.setTitle(ctx, sessionId, text)
         sending = true
         val context = ctx
         Thread {
@@ -285,7 +480,7 @@ class ChatTab(
     private fun completeOffline(reply: String) {
         addBubble(reply, true)
         history.add(ChatMsg("assistant", reply))
-        ChatStore.append(ctx, "assistant", reply)
+        ChatStore.add(ctx, sessionId, ChatMsg("assistant", reply))
         while (history.size > 30) history.removeAt(0)
         sending = false
     }
@@ -299,7 +494,7 @@ class ChatTab(
             addLog("依据：" + r.sources.joinToString("、"))
         }
         history.add(ChatMsg("assistant", r.reply))
-        ChatStore.append(ctx, "assistant", r.reply)
+        ChatStore.add(ctx, sessionId, ChatMsg("assistant", r.reply))
         while (history.size > 30) history.removeAt(0)
         sending = false
         if (r.pending.isEmpty()) return
@@ -308,16 +503,23 @@ class ChatTab(
         confirm(
             ctx, "允许智嘉执行这些操作？", lines, "允许",
             onOk = {
-                val logs = r.pending.map { action ->
+                val outcomes = r.pending.map { action ->
+                    val type = action.optString("type")
                     try {
-                        ActionExecutor.execute(ctx, action)
+                        ActionExecutor.executeOutcome(ctx, action)
                     } catch (e: Exception) {
-                        val type = action.optString("type")
                         ActionExecutor.logFailure(type, e)
-                        ActionExecutor.humanize(type, e)
+                        ActionExecutor.Outcome(false, type, ActionExecutor.humanize(type, e))
                     }
                 }
-                addLog(logs.joinToString("\n") { "· $it" })
+                addLog(outcomes.joinToString("\n") { "· " + it.message })
+                // 失败不能只躺在灰色日志里：再补一条明确的气泡，避免「看着像成功」
+                val failed = outcomes.filter { !it.ok }
+                if (failed.isNotEmpty()) {
+                    val sorry = "动作没有全部成功：" + failed.joinToString("；") { it.message }
+                    addBubble(sorry, true)
+                    ChatStore.add(ctx, sessionId, ChatMsg("assistant", sorry))
+                }
             },
             onCancel = { addLog("已取消执行") }
         )

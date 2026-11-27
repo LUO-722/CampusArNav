@@ -70,6 +70,18 @@ data class ChatMsg(
     var content: String
 )
 
+/**
+ * 一次会话：App 每次冷启动新开一个，旧会话留在聊天记录列表里。
+ *
+ * [title] 默认取首条 user 消息的前 18 个字（见 `ChatStore.TITLE_MAX`），可手动改。
+ */
+data class ChatSession(
+    val id: String,
+    val title: String,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
 /** 从通知里解析出来的活动草稿。 */
 data class ActivityDraft(
     var title: String = "",

@@ -2,6 +2,7 @@ package com.campus.arnav.net
 
 import com.campus.arnav.data.ChatMsg
 import com.campus.arnav.data.Provider
+import com.campus.arnav.data.SettingsStore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -60,13 +61,26 @@ object LlmClient {
                 }
             }.toString()
         }
+        // 联网搜索只有部分模型放量：search=true 时换成实测过的搜索模型链，
+        // 调用方传进来的 provider 只当 base/key 外壳（见 SettingsStore.searchProvider）。
+        val chain = if (search) searchChainProvider(provider) else provider
         return try {
-            parseContent(post(provider) { model -> build(model, search) })
+            parseContent(post(chain) { model -> build(model, search) })
         } catch (e: LlmException) {
             // 某个模型不支持联网搜索时，退化成不搜索再问一次，别让用户看到报错
             if (!search || e is RetryableLlmException) throw e
             parseContent(post(provider) { model -> build(model, false) })
         }
+    }
+
+    /**
+     * 联网搜索要单独的模型链（见 [SettingsStore.searchProvider]）：调用方传进来的 [Provider]
+     * 只保留 base/key，模型换成实测支持 `enable_search`、且在 json_object 下能正常出正文的那几个。
+     */
+    private fun searchChainProvider(provider: Provider): Provider {
+        val searchOnly = SettingsStore.searchProvider()
+        if (!searchOnly.ready() || searchOnly.modelChain() == provider.modelChain()) return provider
+        return Provider(provider.base, provider.key, searchOnly.model, searchOnly.models)
     }
 
     /** 图片理解：传入 base64（不含 data: 前缀）与 mime。 */

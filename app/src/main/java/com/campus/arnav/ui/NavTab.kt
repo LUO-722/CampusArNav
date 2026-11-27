@@ -32,6 +32,7 @@ import com.campus.arnav.core.CampusVector
 import com.campus.arnav.core.RoadMerge
 import com.campus.arnav.core.TrackRecorder
 import com.campus.arnav.core.CampusPath
+import com.campus.arnav.core.Fix
 import com.campus.arnav.core.GeoUtils
 import com.campus.arnav.core.RouteRepository
 import com.campus.arnav.core.UserLocator
@@ -266,9 +267,20 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
     /** 点楼牌时把名字对齐到 RouteRepository（矢量图里的名字带全称）。 */
     private fun planFuzzy(raw: String) {
-        val key = raw.substringBefore("（").substringBefore(" ·").trim()
+        val key0 = raw.substringBefore("（").substringBefore(" ·").trim()
+        // 官图上的叫法与路网里的名字不一致，先过一遍别名
+        val aliases = mapOf(
+            "图书馆" to "明志楼", "图文信息中心" to "明志楼", "图书信息中心" to "明志楼",
+            "活动中心" to "风华楼", "大学生活动中心" to "风华楼", "风华" to "风华楼",
+            "行政楼" to "崇德楼", "大门" to "南门", "正门" to "南门", "主校门" to "南门",
+            "一食堂" to "第一食堂", "二食堂" to "第二食堂", "食堂" to "第一食堂",
+            "操场" to "田径场", "运动场" to "田径场", "体育场" to "田径场",
+            "实训中心" to "工程训练中心", "门诊部" to "校医院", "超市" to "商业街"
+        )
+        val key = aliases[key0] ?: key0
         val all = RouteRepository.buildings(ctx)
         val hit = all.firstOrNull { it.name == raw }
+            ?: all.firstOrNull { it.name == key }
             ?: all.firstOrNull { it.name.contains(key) || key.contains(it.name) }
             ?: all.firstOrNull { key.isNotEmpty() && (it.name.contains(key.take(2))) }
         if (hit != null) plan(hit.name) else ctx.toast("「$raw」暂时算不了路线")
@@ -308,6 +320,14 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         CampusGraph.load(ctx)
         map.setVector(CampusVector.load(ctx))
         updateExtraPaths()
+        // setVector 会重建底图缓存，这里把已算路线/目的地/蓝点补回去（否则切 Tab 回来线就没了）
+        path?.let { p -> map.setRoute(p.points) }
+        destName?.let { name ->
+            RouteRepository.buildings(ctx).firstOrNull { it.name == name }?.let { b ->
+                map.setDestination(b.lat, b.lon, b.name)
+            }
+        }
+        if (haveFix) map.setMyLocation(fixLat, fixLon, fixBearing)
         renderSurveyState()
         render()
     }
@@ -334,22 +354,39 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
                     81
                 )
             }
-            ctx.toast("已请求定位权限，允许后点「定位」再试")
+            ctx.toast("已请求定位权限，允许后会继续定位")
+            return
         }
-        UserLocator.start(ctx) { fix ->
-            fixLat = fix.lat
-            fixLon = fix.lon
-            fixBearing = fix.bearing ?: -1f
-            haveFix = !UserLocator.isNoFix(fix)
-            map.setMyLocation(fix.lat, fix.lon, fixBearing)
-            if (haveFix) {
-                fromMe = true
-                startLabel.text = "起点：我的位置"
-                if (destName != null) destName?.let { plan(it) }
-            } else {
-                ctx.toast("暂时没有定位，先用南门当起点")
-            }
+        UserLocator.start(ctx) { fix -> onFix(fix) }
+    }
+
+    /** 定位权限对话框返回后由 MainShellActivity 转发过来。 */
+    fun onLocatePermission(granted: Boolean) {
+        if (granted) locate() else ctx.toast("没有定位权限：可以先用「起点：南门」导航")
+    }
+
+    private fun onFix(fix: Fix) {
+        val moved = haveFix &&
+            GeoUtils.distanceMeters(fixLat, fixLon, fix.lat, fix.lon) > 15.0
+        fixLat = fix.lat
+        fixLon = fix.lon
+        fixBearing = fix.bearing ?: -1f
+        haveFix = !UserLocator.isNoFix(fix)
+        map.setMyLocation(fix.lat, fix.lon, fixBearing)
+        if (!haveFix) {
+            ctx.toast("暂时没有定位，先用南门当起点")
+            return
         }
+        fromMe = true
+        startLabel.text = "起点：我的位置"
+        val dest = destName ?: return
+        // 跟随模式：地图跟着蓝点走，不重算路线（以前每个定位点都重排页面）
+        if (following) {
+            map.zoomTo(fix.lat, fix.lon, map.currentScale())
+            return
+        }
+        // 起点变了才更新路线，且走出 15 米以上才重算，重算时不再重置视角
+        if (moved) plan(dest, refit = false)
     }
 
     private fun clearRoute() {
@@ -357,6 +394,13 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         path = null
         following = false
         UserLocator.stop()
+        fromMe = false
+        haveFix = false
+        fixBearing = -1f
+        fixLat = RouteRepository.gate.lat
+        fixLon = RouteRepository.gate.lon
+        startLabel.text = "起点：南门"
+        map.setMyLocation(null, null, null)
         map.setRoute(emptyList())
         map.setDestination(null, null, null)
         map.fitAll()
@@ -365,13 +409,18 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         updateA11y()
     }
 
-    private fun plan(name: String) {
+    private fun plan(name: String, refit: Boolean = true) {
         if (!CampusGraph.load(ctx)) {
             ctx.toast("路网数据没读到，稍后再试")
             return
         }
+        var fellBack = false
         val p = if (fromMe && haveFix) {
-            CampusGraph.routeFromPoint(fixLat, fixLon, name) ?: CampusGraph.route("南门", name)
+            val r = CampusGraph.routeFromPoint(fixLat, fixLon, name)
+            if (r == null) {
+                fellBack = true
+                CampusGraph.route("南门", name)
+            } else r
         } else {
             CampusGraph.route("南门", name)
         }
@@ -379,12 +428,18 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
             ctx.toast("没能算出到「$name」的路线")
             return
         }
+        if (fellBack) {
+            fromMe = false
+            haveFix = false
+            startLabel.text = "起点：南门"
+            ctx.toast("定位点离校园路网太远，已改从南门算起")
+        }
         destName = name
         path = p
         val target = RouteRepository.buildings(ctx).firstOrNull { it.name == name }
         if (target != null) map.setDestination(target.lat, target.lon, target.name) else map.setDestination(null, null, null)
         map.setRoute(p.points)
-        map.fitRoute(p.points)
+        if (refit) map.fitRoute(p.points)
         if (fromMe && haveFix) map.setMyLocation(fixLat, fixLon, fixBearing)
         renderRoute(p, name)
         updateA11y()

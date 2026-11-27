@@ -294,17 +294,48 @@ class TimetableGridView @JvmOverloads constructor(
     }
 
     /** 活动在周视图里的矩形；日期非法返回 null。 */
+    /** "HH:mm" → 当天分钟数；解析不出来返回 -1。 */
+    private fun minutesOf(hhmm: String): Int {
+        val t = hhmm.trim()
+        val i = t.indexOf(':')
+        if (i <= 0) return -1
+        val h = t.substring(0, i).toIntOrNull() ?: return -1
+        val m = t.substring(i + 1).take(2).toIntOrNull() ?: return -1
+        return h * 60 + m
+    }
+
+    /**
+     * 时间 → 行内 y 坐标：先定位落在哪一小节，再在该小节里按分钟线性插值。
+     * 这样 10:00—11:30 的活动就只占 10:00 到 11:30 那段，不再被拉成整节。
+     */
+    private fun yForTime(hhmm: String, fallbackPeriod: Int): Float {
+        val t = minutesOf(hhmm)
+        if (t < 0) return headerH + rowH * (fallbackPeriod - 1)
+        for (p in 1..12) {
+            val range = ScheduleLogic.periodTime(p, "")
+            val s = minutesOf(range.substringBefore("-"))
+            val e = minutesOf(range.substringAfter("-"))
+            if (s < 0 || e <= s) continue
+            if (t < s) return headerH + rowH * (p - 1)
+            if (t <= e) {
+                val frac = (t - s).toFloat() / (e - s).toFloat()
+                return headerH + rowH * (p - 1) + rowH * frac
+            }
+        }
+        return headerH + rowH * 12
+    }
+
     private fun activityRect(a: Activity): RectF? {
         val wd = ScheduleLogic.weekdayOf(a.date)
         if (wd !in 1..7) return null
         val sp = ScheduleLogic.periodForTime(a.startTime, a.date).coerceIn(1, 12)
-        val epRaw = ScheduleLogic.periodForTime(a.endTime, a.date).coerceIn(1, 12)
-        val ep = if (epRaw < sp) sp else epRaw
+        val gridBottom = headerH + rowH * 12
+        val top = yForTime(a.startTime, sp) + density
+        val endRaw = if (a.endTime.isBlank()) top + rowH * 0.75f
+                     else yForTime(a.endTime, sp + 1) - density
+        val bottom = endRaw.coerceAtLeast(top + 16 * density).coerceAtMost(gridBottom)
         val x = periodW + dayW * (wd - 1) + 2 * density
-        val y = headerH + rowH * (sp - 1) + 2 * density
-        val w = dayW - 4 * density
-        val h = rowH * (ep - sp + 1) - 4 * density
-        return RectF(x, y, x + w, y + h)
+        return RectF(x, top, x + dayW - 4 * density, bottom)
     }
 
     /** 在课程块右上角画「＋N」角标：只占顶部一条，课名已下移让位，点角标看活动详情。 */

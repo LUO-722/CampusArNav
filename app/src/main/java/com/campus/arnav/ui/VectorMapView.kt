@@ -325,6 +325,8 @@ class VectorMapView @JvmOverloads constructor(
             invalidate()
             return
         }
+        val prevW = worldW
+        val prevH = worldH
         lat0 = (v.latMin + v.latMax) / 2
         lon0 = (v.lonMin + v.lonMax) / 2
         mPerLon = M_PER_DEG_LON * cos(Math.toRadians(lat0))
@@ -337,16 +339,40 @@ class VectorMapView @JvmOverloads constructor(
         buildFaces(v)
         buildRoads(v)
         buildLabels(v)
-        routePath = null
-        trackPath = null
+        // 换底图时保留已算好的路线与测绘轨迹（切 Tab 回来不再丢线）
+        rebuildPaths()
         contentDescription = "校园矢量地图，共 " + v.buildings.size + " 栋建筑"
-        laidOut = false
-        if (width > 0 && height > 0) onSizeChanged(width, height, 0, 0)
+        // 只有首次布局或校园范围变化才重排视野，避免每次进页面都弹回整图
+        val worldChanged = Math.abs(worldW - prevW) > 0.5f || Math.abs(worldH - prevH) > 0.5f
+        if (!laidOut || width <= 0 || height <= 0 || worldChanged) {
+            laidOut = false
+            if (width > 0 && height > 0) onSizeChanged(width, height, 0, 0)
+        }
         invalidate()
+    }
+
+    private var routePts: List<Pair<Double, Double>> = emptyList()
+    private var trackSegs: List<List<Pair<Double, Double>>> = emptyList()
+
+    /** 换底图后按缓存重画路线与轨迹（像素依赖当前 lat0/lon0，必须重算）。 */
+    private fun rebuildPaths() {
+        routePath = if (routePts.size < 2) null else polygonPath(routePts, close = false)
+        trackPath = null
+        if (trackSegs.isEmpty()) return
+        val p = Path()
+        var any = false
+        for (seg in trackSegs) {
+            if (seg.size < 2) continue
+            p.moveTo(worldX(seg[0].second), worldY(seg[0].first))
+            for (j in 1 until seg.size) p.lineTo(worldX(seg[j].second), worldY(seg[j].first))
+            any = true
+        }
+        if (any) trackPath = p
     }
 
     /** 路线折线（lat, lon 顺序）。空列表表示清除。 */
     fun setRoute(pts: List<Pair<Double, Double>>) {
+        routePts = pts
         routePath = if (pts.size < 2) null else polygonPath(pts, close = false)
         invalidate()
     }
@@ -372,6 +398,7 @@ class VectorMapView @JvmOverloads constructor(
 
     /** 叠加测绘轨迹（可空，每条是独立折线）。 */
     fun setExtraPaths(paths: List<List<Pair<Double, Double>>>?) {
+        trackSegs = paths ?: emptyList()
         if (paths == null || paths.isEmpty()) {
             trackPath = null
             invalidate()
@@ -772,8 +799,10 @@ class VectorMapView @JvmOverloads constructor(
             val y = labelY[i] * scale + offY
             // 夹在可视区域内，避免楼名被卡片边缘切掉半个字
             val tw = labelTextPaint.measureText(t)
+            // 视野比文字还窄时直接跳过，否则 coerceIn 的 min>max 会抛 IllegalArgumentException
+            if (width < tw + dp(10f)) continue
             val tx = x.coerceIn(tw / 2f + dp(4f), width - tw / 2f - dp(4f))
-            val ty = y.coerceIn(dp(14f), height - dp(8f))
+            val ty = y.coerceIn(dp(14f), (height - dp(8f)).coerceAtLeast(dp(14f)))
             if (!showAll && hasDest) {
                 val dx = x - destX
                 val dy = y - destY

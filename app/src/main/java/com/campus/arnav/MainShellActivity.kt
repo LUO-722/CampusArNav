@@ -192,6 +192,19 @@ class MainShellActivity : AppCompatActivity() {
         }
     }
 
+    /** 定位权限对话框返回：转给导航栏，允许就继续定位，拒绝也给出路。 */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != 81) return
+        val ok = grantResults.isNotEmpty() &&
+            grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (this::nav.isInitialized) nav.onLocatePermission(ok)
+    }
+
     /** Android 13+ 第一次进应用要主动要通知权限，否则提醒发不出来。 */
     private fun askNotifyPermission() {
         if (android.os.Build.VERSION.SDK_INT < 33) return

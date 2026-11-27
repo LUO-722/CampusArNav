@@ -51,6 +51,26 @@ class CampusVector(
     class Label(val text: String, val lat: Double, val lon: Double, val kind: String)
 
     /** 找最近的建筑（用于点击命中）；`maxMeters` 内才算命中。 */
+    /** bounds 缺失或退化（跨度 ≤ 0）时，用实际几何反推，避免整张图上不了屏。 */
+    fun withComputedBounds(): CampusVector {
+        if (latMax - latMin > 1e-6 && lonMax - lonMin > 1e-6) return this
+        var a = Double.MAX_VALUE
+        var b2 = -Double.MAX_VALUE
+        var c = Double.MAX_VALUE
+        var d = -Double.MAX_VALUE
+        fun acc(lat: Double, lon: Double) {
+            if (lat < a) a = lat
+            if (lat > b2) b2 = lat
+            if (lon < c) c = lon
+            if (lon > d) d = lon
+        }
+        (buildings + water + greens).forEach { sh -> sh.poly.forEach { acc(it.first, it.second) } }
+        roads.forEach { r -> r.pts.forEach { acc(it.first, it.second) } }
+        labels.forEach { acc(it.lat, it.lon) }
+        if (b2 - a <= 1e-6 || d - c <= 1e-6) return this
+        return CampusVector(a, b2, c, d, buildings, water, greens, roads, labels)
+    }
+
     fun buildingNear(lat: Double, lon: Double, maxMeters: Double = 60.0): Shape? {
         var best: Shape? = null
         var bestD = Double.MAX_VALUE
@@ -103,17 +123,21 @@ class CampusVector(
         fun parse(text: String): CampusVector {
             val o = JSONObject(text)
             val b = o.optJSONObject("bounds")
-            return CampusVector(
-                latMin = b?.optDouble("latMin", 0.0) ?: 0.0,
-                latMax = b?.optDouble("latMax", 0.0) ?: 0.0,
-                lonMin = b?.optDouble("lonMin", 0.0) ?: 0.0,
-                lonMax = b?.optDouble("lonMax", 0.0) ?: 0.0,
+            // bounds 既支持嵌套对象，也支持顶层平铺（生成脚本两种都出现过，缺一个整张地图就画不出来）
+            fun num(key: String): Double = b?.optDouble(key, 0.0)?.takeIf { it != 0.0 }
+                ?: o.optDouble(key, 0.0)
+            val out = CampusVector(
+                latMin = num("latMin"),
+                latMax = num("latMax"),
+                lonMin = num("lonMin"),
+                lonMax = num("lonMax"),
                 buildings = shapes(o.optJSONArray("buildings"), "building"),
                 water = shapes(o.optJSONArray("water"), "water"),
                 greens = shapes(o.optJSONArray("greens"), "green"),
                 roads = paths(o.optJSONArray("roads")),
                 labels = labels(o.optJSONArray("labels"))
             )
+            return out.withComputedBounds()
         }
 
         private fun shapes(arr: JSONArray?, fallbackKind: String): List<Shape> {

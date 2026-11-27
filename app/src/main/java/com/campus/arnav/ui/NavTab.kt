@@ -66,6 +66,9 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
     private val startLabel = textView(ctx, "起点：南门", 12f, ctx.color(R.color.accent_ink), bold = true)
 
+    /** 测绘状态行（「未在测绘」/「测绘中 · N 点」），必须在 init 之前初始化。 */
+    private val surveyStatus = textView(ctx, "未在测绘", 11f, ctx.color(R.color.text_secondary))
+
     // ---- 底图切换（选择记忆在 zhijia_map，下次进来沿用） ----
     private val mapPrefs = ctx.getSharedPreferences("zhijia_map", Context.MODE_PRIVATE)
 
@@ -200,8 +203,6 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     // ---------------- 底图 / 图例 / 缩放 / 无障碍 ----------------
 
     // ---------------- 实测测绘 ----------------
-
-    private val surveyStatus = textView(ctx, "未在测绘", 11f, ctx.color(R.color.text_secondary))
 
     /** 「测绘」一行：开始/结束记录 + 轨迹数 + 并入路网。 */
     private fun surveyRow(): LinearLayout {

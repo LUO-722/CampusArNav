@@ -16,10 +16,10 @@ import androidx.core.content.res.ResourcesCompat
 import com.campus.arnav.R
 
 /**
- * 课程表「日视图」用的一组卡片：手写体、日期大图卡、日程卡片。
+ * 课程表「日视图」用的一组卡片：日期大图卡 + 日程卡片。
  *
- * 手写体用 res/font/long_cang.ttf（Long Cang，OFL 授权，可随 APK 分发）。
- * 字体加载失败时自动退回系统字体，界面不会崩。
+ * 手写体（res/font/long_cang.ttf）只留给日期大图卡和页面大标题；
+ * 日程卡片里的课名/时间/地点一律用系统黑体，浅粉底上更清楚。
  */
 
 private var handTypefaceCache: Typeface? = null
@@ -90,14 +90,15 @@ fun scheduleCard(
     }
     val dot = View(ctx).apply { background = rounded(ctx, dotColor, 4) }
     head.addView(dot, LinearLayout.LayoutParams(ctx.dp(8), ctx.dp(8)).apply { rightMargin = ctx.dp(10) })
-    val name = handText(ctx, title, 17f, ctx.color(R.color.text_primary)).apply {
+    val name = textView(ctx, title, 16f, ctx.color(R.color.text_primary), bold = true).apply {
         maxLines = 2
         ellipsize = android.text.TextUtils.TruncateAt.END
+        setLineSpacing(0f, 1.08f)
     }
     head.addView(name, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     if (demo) {
-        // 「示例」小标签：浅粉底 + 主色字，尺寸跟旁边元信息一个量级
-        val badge = textView(ctx, "示例", 10f, ctx.color(R.color.accent)).apply {
+        // 「示例」小标签：浅粉底 + accent_ink 深字（6.03:1，原 accent 只有 3.15:1）
+        val badge = textView(ctx, "示例", 10f, ctx.color(R.color.accent_ink)).apply {
             background = rounded(ctx, ctx.color(R.color.accent_soft), 7)
             setPadding(ctx.dp(5), ctx.dp(1), ctx.dp(5), ctx.dp(1))
         }
@@ -108,13 +109,13 @@ fun scheduleCard(
     card.addView(head)
 
     val timeLine = if (hint.isBlank()) timeText else "$timeText  |  $hint"
-    val time = handText(ctx, timeLine, 13f, ctx.color(R.color.text_secondary)).apply {
+    val time = textView(ctx, timeLine, 13f, ctx.color(R.color.text_secondary)).apply {
         setPadding(ctx.dp(18), ctx.dp(6), 0, 0)
     }
     card.addView(time)
 
     if (place.isNotBlank()) {
-        card.addView(handText(ctx, place, 13f, ctx.color(R.color.text_secondary)).apply {
+        card.addView(textView(ctx, place, 13f, ctx.color(R.color.text_secondary)).apply {
             setPadding(ctx.dp(18), ctx.dp(2), 0, 0)
         })
     }

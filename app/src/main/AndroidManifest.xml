@@ -50,12 +50,6 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.CampusAr">
 
-        <!-- 高德地图 Key：构建期由 app/build.gradle 的 manifestPlaceholders 从 local.properties 的
-             amap.key 注入（未配置时为空串，UI 侧用 AmapEnv.ready() 隐藏地图入口）。 -->
-        <meta-data
-            android:name="com.amap.api.v2.apikey"
-            android:value="${AMAP_KEY}" />
-
         <!-- 登录教务降级为应用内页面：不再做 LAUNCHER，只从「我的 / 课程表提示条」进来 -->
         <activity
             android:name=".LoginActivity"

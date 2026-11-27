@@ -27,7 +27,7 @@ import java.util.Date
  * ① 课程表：顶部「周 / 日」两种视图。
  *
  * - 周：原来的 7×12 网格 + 操作按钮；底部的「今日活动」「接下来 7 天」改成日视图同款卡片。
- * - 日：日期大图卡 + 当天课程/活动卡片列表（手写体），上完的淡化加删除线。
+ * - 日：日期大图卡（手写体日期）+ 当天课程/活动卡片列表（系统黑体，上完的淡化加删除线）。
  */
 class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
 
@@ -42,7 +42,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
     /** 顶部「当前是示例课表」提示条：全部是示例数据时显示。 */
     private val demoTip = LinearLayout(ctx)
 
-    private val dayNavLabel = handText(ctx, "", 15f, ctx.color(R.color.text_primary)).apply {
+    private val dayNavLabel = textView(ctx, "", 15f, ctx.color(R.color.text_primary), bold = true).apply {
         gravity = Gravity.CENTER
     }
     private val heroHolder = FrameLayout(ctx)
@@ -298,7 +298,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         ))
     }
 
-    private fun sectionTitle(text: String): TextView = handText(ctx, text, 17f, ctx.color(R.color.text_primary)).apply {
+    private fun sectionTitle(text: String): TextView = textView(ctx, text, 16f, ctx.color(R.color.text_primary), bold = true).apply {
         setPadding(0, ctx.dp(12), 0, ctx.dp(6))
     }
 
@@ -355,7 +355,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         todayBox.removeAllViews()
         val acts = activities.filter { it.date == today }.sortedBy { it.startTime }
         if (acts.isEmpty()) {
-            todayBox.addView(handText(ctx, "今天没有录入的活动。", 14f, ctx.color(R.color.text_secondary)))
+            todayBox.addView(textView(ctx, "今天没有录入的活动。", 14f, ctx.color(R.color.text_secondary)))
         }
         for (a in acts) {
             todayBox.addView(
@@ -383,7 +383,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
             .filter { it.date > today && it.date <= end }
             .sortedBy { it.date + it.startTime }
         if (upcoming.isEmpty()) {
-            upcomingBox.addView(handText(ctx, "未来一周没有活动。", 14f, ctx.color(R.color.text_secondary)))
+            upcomingBox.addView(textView(ctx, "未来一周没有活动。", 14f, ctx.color(R.color.text_secondary)))
         }
         for (a in upcoming) {
             upcomingBox.addView(
@@ -464,10 +464,10 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
             dayList.addView(
                 dayCard(ctx).apply {
                     addView(
-                        handText(
+                        textView(
                             ctx,
                             if (shownDate == today) "今天没有课，也没有活动。" else "这一天没有安排。",
-                            15f,
+                            14f,
                             ctx.color(R.color.text_secondary)
                         )
                     )

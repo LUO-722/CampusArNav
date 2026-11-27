@@ -1,6 +1,8 @@
 package com.campus.arnav.ui
 
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
 import android.os.SystemClock
@@ -150,11 +152,8 @@ class ChatTab(
         // 一次点击就要能打字：ACTION_DOWN 就把焦点和键盘拿到手。
         // 键盘弹起后本视图会补底部 padding 重新布局，输入行整体上移，
         // 原来那次 ACTION_UP 会落到移动后的位置上，以前就表现为「点一下只是升起来，要再点一次才能输入」。
-        input.setOnTouchListener { v, event ->
-            if (event.actionMasked == MotionEvent.ACTION_DOWN && !v.hasFocus()) {
-                v.requestFocus()
-                v.post { showIme(v) }
-            }
+        input.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) grabInputFocus(openIme = true)
             false
         }
         input.setOnFocusChangeListener { v, hasFocus ->
@@ -167,13 +166,13 @@ class ChatTab(
         row.addView(button(ctx, "发送", ctx.color(R.color.accent), Color.parseColor("#FFFFFF")).apply {
             setOnClickListener { send() }
         }, LinearLayout.LayoutParams(ctx.dp(64), ctx.dp(42)).apply { leftMargin = ctx.dp(6) })
-        // 整条输入行都可点：点空白处也直接进输入态，不用精确点到输入框内部
+        // 整条输入行都可点：点空白处也直接进输入态，不用精确点到输入框内部。
+        // 注意 clickable 的 ViewGroup 默认也是 focusable 的，这里显式关掉，
+        // 否则它会在键盘重排时跟输入框抢焦点。
         row.isClickable = true
-        row.setOnClickListener {
-            input.requestFocus()
-            input.setSelection(input.text?.length ?: 0)
-            showIme(input)
-        }
+        row.isFocusable = false
+        row.isFocusableInTouchMode = false
+        row.setOnClickListener { grabInputFocus(openIme = true) }
         addView(row)
 
         val saved = ChatStore.messages(ctx, sessionId).takeLast(30)
@@ -346,6 +345,34 @@ class ChatTab(
     }
 
     /**
+     * 把焦点 / 光标 / 键盘一次性交回输入框。
+     *
+     * 为什么不只靠 EditText 自己的点击：键盘弹起的同一帧里，本页会补底部 padding 重新布局，
+     * 焦点在重排过程中会丢，而 msgBox 里的气泡只要还是 focusableInTouchMode
+     * （`setTextIsSelectable(true)` 就会变成这样），系统就会把焦点塞给其中一个气泡：
+     * IME 的 servedView 变成 TextView，键盘看起来弹起来了却一个字符都进不了输入框，
+     * 必须再点一次。所以这里在每次点击时主动把焦点按回输入框。
+     */
+    private fun grabInputFocus(openIme: Boolean) {
+        if (viewingHistory || inputRow.visibility != View.VISIBLE) return
+        val had = input.hasFocus()
+        if (!had) {
+            input.requestFocus()
+            if (!input.hasFocus()) input.requestFocusFromTouch()
+        }
+        if (!had) input.setSelection(input.text?.length ?: 0)
+        input.isCursorVisible = true
+        if (openIme) showIme(input)
+    }
+
+    /** 长按气泡复制整条消息（以前靠 setTextIsSelectable 拖选，副作用是把气泡变成可聚焦视图）。 */
+    private fun copyBubble(v: TextView) {
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        cm.setPrimaryClip(ClipData.newPlainText("消息", v.text?.toString().orEmpty()))
+        ctx.toast("已复制这条消息")
+    }
+
+    /**
      * 点输入框弹键盘时，让整个对话区（连同输入行）跟着键盘升上来。
      *
      * targetSdk 35+ 系统强制 edge-to-edge：manifest 里的 adjustResize 不再压缩窗口，
@@ -382,19 +409,32 @@ class ChatTab(
             val extra = if (fullScreen) (ime - below).coerceAtLeast(0) else 0
             if (extra != imeExtra) {
                 imeExtra = extra
+                val hadFocus = input.hasFocus()
+                val caret = if (hadFocus) input.selectionStart.coerceAtLeast(0) else -1
                 val apply = Runnable {
-                    val hadFocus = input.hasFocus()
-                    val caret = input.selectionStart.coerceAtLeast(0)
                     v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, padBottom + imeExtra)
-                    if (hadFocus && !input.hasFocus()) {
-                        input.requestFocus()
-                        input.setSelection(caret.coerceAtMost(input.text?.length ?: 0))
-                    } else if (!input.hasFocus() && imeExtra > 0) {
-                        // 第一下点击的 ACTION_UP 被布局变化吃掉时，这里替用户补上焦点，省得再点一次
-                        input.requestFocus()
-                        input.setSelection(input.text?.length ?: 0)
+                    // 关键顺序：先让 padding 落地（这一帧的布局会被改），再在下一帧把焦点抢回来。
+                    // 重排期间系统可能已经把焦点交给了别的可聚焦视图（气泡），
+                    // 那样键盘虽然弹出来，字符却进不了输入框；这里必须最后一步再补焦点 + 补键盘。
+                    input.post {
+                        if (viewingHistory || inputRow.visibility != View.VISIBLE) return@post
+                        if (imeExtra > 0) {
+                            if (!input.hasFocus()) {
+                                input.requestFocus()
+                                if (!input.hasFocus()) input.requestFocusFromTouch()
+                            }
+                            val len = input.text?.length ?: 0
+                            val at = if (caret >= 0) caret.coerceIn(0, len) else len
+                            input.setSelection(at)
+                            input.isCursorVisible = true
+                            // requestFocus 只保证「焦点在我这」，键盘可能还连着上一个视图：再显式要一次
+                            val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                            if (imm != null && !imm.isActive(input)) {
+                                imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+                            }
+                        }
+                        scroll.fullScroll(ScrollView.FOCUS_DOWN)
                     }
-                    if (imeExtra > 0) scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
                 }
                 // 手指还按在屏幕上时先别挪：挪早了会把 ACTION_UP 甩到别处，输入框收不到光标
                 if (SystemClock.uptimeMillis() - lastTouchAt < 400L) {
@@ -600,7 +640,15 @@ class ChatTab(
             setTextColor(if (assistant) ctx.color(R.color.text_primary) else Color.parseColor("#FFFFFF"))
             setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), ctx.dp(10))
             background = rounded(ctx, if (assistant) ctx.color(R.color.bg_card) else ctx.color(R.color.accent), 14)
-            setTextIsSelectable(true)
+            // 复制改成「长按」：setTextIsSelectable(true) 会把气泡变成 focusableInTouchMode 的 TextView，
+            // 键盘弹起重排时焦点被它抢走，第一次点输入框就打不了字。这里绝不让气泡可聚焦。
+            setOnLongClickListener {
+                copyBubble(it as TextView)
+                true
+            }
+            isFocusable = false
+            isFocusableInTouchMode = false
+            isClickable = false
         }
         val wrap = LinearLayout(ctx).apply {
             orientation = HORIZONTAL

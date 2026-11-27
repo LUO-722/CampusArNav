@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.DashPathEffect
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -65,11 +66,11 @@ class TimetableGridView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
     }
     private val courseNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        // pastel 浅底块：用深色字，白字在浅粉浅蓝上几乎看不见
+        // pastel 浅底块：用深色系统黑体（不再用手写体），窄列也认得清
         color = 0xFF3D3340.toInt()
         textSize = 10.5f * density
         textAlign = Paint.Align.CENTER
-        isFakeBoldText = true
+        typeface = Typeface.DEFAULT_BOLD
     }
     private val courseLocPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xB33D3340.toInt()
@@ -211,13 +212,20 @@ class TimetableGridView @JvmOverloads constructor(
 
             val acts = overlapped[c]
             val hasAct = !acts.isNullOrEmpty()
-            // 有活动角标时课程名整体下移，保证课名不被角标压住
-            val nameTop = if (hasAct) 27 * density else 15 * density
+            val hasDemo = c.source == "demo"
+            // 顶部角标条带：有「示例」/「＋N」角标时课名整体下移，任何块宽都不压字
+            val badgeBand = if (hasAct || hasDemo) 13 * density else 0f
+            val narrow = rect.width() < 58 * density
+            val nameSize = (if (narrow) 9.5f else 10.5f) * density
+            courseNamePaint.textSize = nameSize
+            val lineH = nameSize * 1.14f
+            val bodyH = (rect.height() - badgeBand - 3 * density).coerceAtLeast(lineH)
+            val maxLines = (bodyH / lineH).toInt().coerceIn(1, 3)
             val lines = wrap(c.name, rect.width() - 8 * density, courseNamePaint)
-            var ty = rect.top + nameTop
-            for (line in lines.take(if (hasAct) 2 else 3)) {
+            var ty = rect.top + badgeBand + 2 * density + nameSize
+            for (line in lines.take(maxLines)) {
                 canvas.drawText(line, rect.centerX(), ty, courseNamePaint)
-                ty += 12 * density
+                ty += lineH
             }
             if (c.location.isNotBlank() && rect.height() > 46 * density) {
                 canvas.drawText(
@@ -229,9 +237,10 @@ class TimetableGridView @JvmOverloads constructor(
             }
 
             // 示例课角标：默认右上角；若该格还有活动角标，挪到左上角免得叠在一起
-            if (c.source == "demo") {
+            if (hasDemo) {
                 val label = "示例"
-                val bw = badgeTextPaint.measureText(label) + 6 * density
+                val bw = (badgeTextPaint.measureText(label) + 6 * density)
+                    .coerceAtMost(rect.width() - 4 * density)
                 val bh = 10 * density
                 val top = rect.top + 2 * density
                 val right = if (hasAct) rect.left + 2 * density + bw else rect.right - 2 * density
@@ -268,18 +277,28 @@ class TimetableGridView @JvmOverloads constructor(
             activityStroke.pathEffect = null
 
             val lines = wrap(a.title, blockRect.width() - 8 * density, activityNamePaint)
-            var ty = y + 14 * density
+            val hasDemo = a.source == "demo"
+            val badgeBand = if (hasDemo) 13 * density else 0f
+            var ty = y + badgeBand + 3 * density + 9.5f * density
             for (line in lines.take(2)) {
                 canvas.drawText(line, x + w / 2, ty, activityNamePaint)
                 ty += 11 * density
             }
-            if (h > 42 * density) {
-                canvas.drawText(
-                    "${a.startTime}-${a.endTime}",
-                    x + w / 2,
-                    y + h - 6 * density,
-                    activityTimePaint
-                )
+
+            // 活动块「示例」角标：同样占顶部一条，不压标题
+            if (hasDemo) {
+                val label = "示例"
+                val bw = (badgeTextPaint.measureText(label) + 6 * density)
+                    .coerceAtMost(blockRect.width() - 4 * density)
+                val bh = 10 * density
+                val top = y + 2 * density
+                badgeRect.set(x + w - 2 * density - bw, top, x + w - 2 * density, top + bh)
+                canvas.drawRoundRect(badgeRect, bh / 2, bh / 2, badgeBgPaint)
+                canvas.drawText(label, badgeRect.centerX(), top + bh * 0.75f, badgeTextPaint)
+            }
+
+            if (h > 40 * density) {
+                drawActivityTime(canvas, blockRect, a.startTime, a.endTime)
             }
         }
     }
@@ -341,16 +360,55 @@ class TimetableGridView @JvmOverloads constructor(
     /** 在课程块右上角画「＋N」角标：只占顶部一条，课名已下移让位，点角标看活动详情。 */
     private fun drawActivityBadge(canvas: Canvas, block: RectF, list: List<Activity>) {
         val n = list.size
-        val narrow = block.width() < 62 * density
-        val label = if (narrow) "＋$n" else "＋$n 活动"
+        val avail = (block.width() - 4 * density).coerceAtLeast(8 * density)
+        var label = if (block.width() < 70 * density) "＋$n" else "＋$n 活动"
+        // 先按块宽挑字号（7.5sp 起，最小 6.5sp），保证文字不越界
+        var sizeSp = 7.5f
+        actBadgeText.textSize = sizeSp * density
+        while (sizeSp > 6.5f && actBadgeText.measureText(label) > avail - 4 * density) {
+            sizeSp -= 0.5f
+            actBadgeText.textSize = sizeSp * density
+        }
+        if (actBadgeText.measureText(label) > avail - 2 * density) {
+            label = "＋$n"
+            actBadgeText.textSize = 7.5f * density
+        }
         val bh = 11 * density
-        val bw = (actBadgeText.measureText(label) + 8 * density).coerceAtMost(block.width() - 2 * density)
+        val bw = (actBadgeText.measureText(label) + 8 * density).coerceAtMost(avail)
         val right = block.right - 2 * density
         val top = block.top + 2 * density
         val rect = RectF(right - bw, top, right, top + bh)
         canvas.drawRoundRect(rect, bh / 2, bh / 2, actBadgeBg)
         canvas.drawText(label, rect.centerX(), top + bh * 0.74f, actBadgeText)
         badgeHits.add(rect to list.first())
+    }
+
+    /**
+     * 活动块底部时间「HH:mm-HH:mm」：先量再画，宽了先降到 8sp；还宽就拆两行
+     * （起始时间 / 结束时间），保证不会出现「16:3」这种被裁断的中间态。
+     */
+    private fun drawActivityTime(canvas: Canvas, block: RectF, start: String, end: String) {
+        val s = start.ifBlank { "--:--" }
+        val e = end.ifBlank { "--:--" }
+        val one = "$s-$e"
+        val avail = (block.width() - 6 * density).coerceAtLeast(10 * density)
+        activityTimePaint.textSize = 8.5f * density
+        if (activityTimePaint.measureText(one) > avail) {
+            activityTimePaint.textSize = 8f * density
+        }
+        val cx = block.centerX()
+        if (activityTimePaint.measureText(one) <= avail) {
+            canvas.drawText(one, cx, block.bottom - 6 * density, activityTimePaint)
+            return
+        }
+        // 两行兜底：块高足够才画（≥48dp），否则只显示起始时间，绝不画半截
+        val twoLineH = 24 * density
+        if (block.height() >= twoLineH + 18 * density) {
+            canvas.drawText(s, cx, block.bottom - 17 * density, activityTimePaint)
+            canvas.drawText(e, cx, block.bottom - 6 * density, activityTimePaint)
+        } else if (activityTimePaint.measureText(s) <= avail) {
+            canvas.drawText(s, cx, block.bottom - 6 * density, activityTimePaint)
+        }
     }
 
     private fun wrap(text: String, maxWidth: Float, paint: Paint): List<String> {

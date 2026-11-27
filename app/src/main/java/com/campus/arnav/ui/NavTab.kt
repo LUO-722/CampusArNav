@@ -130,8 +130,8 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
             setOnClickListener { showLegend() }
         }
         mapFrame.addView(legendBtn, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            gravity = Gravity.TOP or Gravity.START
-            leftMargin = ctx.dp(8)
+            gravity = Gravity.TOP or Gravity.END
+            rightMargin = ctx.dp(8)
             topMargin = ctx.dp(8)
         })
 
@@ -167,7 +167,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         map.setOnBuildingTap { shape -> planFuzzy(shape.name) }
 
         // 比例尺说明（不出现任何外部地图服务名）
-        addView(textView(ctx, "约 100 米/格 · 数据为示意图，实际以现场为准", 10f, ctx.color(R.color.text_secondary)).apply {
+        addView(textView(ctx, "卫星影像底图 · 路线沿校内道路 · 以现场为准", 10f, ctx.color(R.color.text_secondary)).apply {
             setPadding(ctx.dp(2), ctx.dp(4), 0, 0)
         })
 
@@ -217,6 +217,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
         CampusRoads.load(ctx)
         map.setVector(CampusVector.load(ctx))
+                map.setRoads(CampusRoads.segments(ctx))
         ensureBaseMap()
         updateExtraPaths()
         renderSurveyState()
@@ -236,15 +237,22 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
             gravity = Gravity.CENTER_VERTICAL
         }
         row.addView(button(ctx, "开始测绘", ctx.color(R.color.accent), ctx.color(R.color.bg_card)).apply {
+            tag = "surveyStart"
             setOnClickListener { surveyStart() }
         }, LinearLayout.LayoutParams(0, ctx.dp(34), 1f))
         row.addView(button(ctx, "结束并并入", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
+            tag = "surveyStop"
             setOnClickListener { surveyStop() }
         }, LinearLayout.LayoutParams(0, ctx.dp(34), 1f).apply { leftMargin = ctx.dp(6) })
         row.addView(surveyStatus, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             leftMargin = ctx.dp(8)
         })
         return row
+    }
+
+    init {
+        // 首次进入就按「未测绘」上态（避免两个按钮都像可点、又显示「轨迹 0 条」）
+        post { renderSurveyState() }
     }
 
     private fun surveyStart() {
@@ -272,7 +280,18 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
     private fun renderSurveyState() {
         val n = TrackRecorder.list(ctx).size
-        surveyStatus.text = if (TrackRecorder.isRecording()) "测绘中 · 已存 $n 条" else "轨迹 $n 条"
+        val rec = TrackRecorder.isRecording()
+        val text = if (rec) "测绘中 · 已存 $n 条" else if (n > 0) "轨迹 $n 条" else ""
+        surveyStatus.text = text
+        surveyStatus.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
+        (findViewWithTag<View>("surveyStart") as? View)?.let {
+            it.isEnabled = !rec
+            it.alpha = if (rec) 0.45f else 1f
+        }
+        (findViewWithTag<View>("surveyStop") as? View)?.let {
+            it.isEnabled = rec
+            it.alpha = if (rec) 1f else 0.45f
+        }
     }
 
     /** 把绘过的轨迹以浅色虚线画在地图上。 */
@@ -335,6 +354,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     fun refresh() {
         CampusRoads.load(ctx)
         map.setVector(CampusVector.load(ctx))
+                map.setRoads(CampusRoads.segments(ctx))
         ensureBaseMap()
         updateExtraPaths()
         // setVector 会重建底图缓存，这里把已算路线/目的地/蓝点补回去（否则切 Tab 回来线就没了）
@@ -485,7 +505,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         head.addView(
             textView(
                 ctx,
-                "${p.distanceMeters} 米 · 沿校内道路步行约 ${(p.distanceMeters / 80).coerceAtLeast(1)} 分钟 · 示意路线",
+                "${p.distanceMeters} 米 · 沿校内道路步行约 ${(p.distanceMeters / 80).coerceAtLeast(1)} 分钟",
                 11f,
                 ctx.color(R.color.text_secondary)
             )
@@ -579,9 +599,9 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
                     3 -> AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
                         .setTitle("路线说明")
                         .setMessage(
-                            "· 地图是离线示意图，楼与路的相对位置按官方平面导览图排的，不是卫星影像。\n" +
-                                "· 路线由校内路网 A* 算出（中轴 + 两翼 + 宿舍环 + 运动区支线），距离是沿路累加，不是直线。\n" +
-                                "· 坐标精度约 ±100 米，走到楼附近以门牌和路牌为准；AR 实景仅作最后 30 米参考。"
+                            "· 底图是高德卫星影像（GCJ-02，与楼栋/路网同一套坐标），楼与路的相对位置按实景对齐。\n" +
+                                "· 路线由校内路网 A* 算出（745 个路网节点 / 4443 段连通，主干道 + 步道 + 可穿行广场），距离是沿路累加，不是直线。\n" +
+                                "· 走到楼附近以门牌和路牌为准；AR 实景仅作最后 30 米参考。"
                         )
                         .setPositiveButton("知道了", null)
                         .show()

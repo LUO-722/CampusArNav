@@ -284,6 +284,23 @@ object CampusRoads {
     }
 
     /** 从任意定位点算到某栋楼：先走到最近的路，再沿路网算。 */
+    /** 真实道路段（8 米采样，边长 <= maxMeters），用于地图绘制；排除广场斜连线。 */
+    fun segments(ctx: Context, maxMeters: Double = 14.0): List<DoubleArray> {
+        if (!load(ctx)) return emptyList()
+        val out = ArrayList<DoubleArray>(512)
+        for (i in adj.indices) {
+            val ng = adj[i]
+            val dm = adjM[i]
+            for (k in ng.indices) {
+                val j = ng[k]
+                if (j <= i) continue
+                if (dm[k] > maxMeters) continue
+                out.add(doubleArrayOf(latA[i], lonA[i], latA[j], lonA[j]))
+            }
+        }
+        return out
+    }
+
     fun routeFromPoint(ctx: Context, lat: Double, lon: Double, to: String): CampusPath? {
         if (!load(ctx)) return null
         val b = resolve(ctx, to) ?: return null

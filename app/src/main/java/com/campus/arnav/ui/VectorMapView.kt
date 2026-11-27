@@ -62,12 +62,36 @@ class VectorMapView @JvmOverloads constructor(
     private val basePaint = Paint(Paint.FILTER_BITMAP_FLAG)
 
     /** 设置实景底图；null 恢复纯矢量绘制。 */
+    /** 真实道路段：每项 [lat1, lon1, lat2, lon2]。 */
+    fun setRoads(segs: List<DoubleArray>?) {
+        roadSegs = segs
+        realRoadDirty = true
+        invalidate()
+    }
+
     fun setBase(bmp: Bitmap?) {
         baseBmp = bmp
         invalidate()
     }
 
     /** 世界坐标系原点（校园中心）与尺寸，单位米。 */
+    // 真实道路（campus_roads.json 的 8 米采样段），屏幕宽度恒定，随缩放自适应
+    private var roadSegs: List<DoubleArray>? = null
+    private val realRoadPath = Path()
+    private var realRoadDirty = false
+    private val realRoadWhite = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        color = 0xB3FFFFFF.toInt()
+    }
+    private val realRoadPink = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        color = 0x8CE8447A.toInt()
+    }
+
     private var lat0 = 0.0
     private var lon0 = 0.0
     private var worldW = 1f
@@ -697,6 +721,7 @@ class VectorMapView @JvmOverloads constructor(
         if (bmp != null) {
             baseDst.set(-worldW / 2f, -worldH / 2f, worldW / 2f, worldH / 2f)
             canvas.drawBitmap(bmp, null, baseDst, basePaint)
+            drawRealRoads(canvas)
         } else {
             drawGreens(canvas)
             drawWater(canvas)
@@ -713,6 +738,28 @@ class VectorMapView @JvmOverloads constructor(
         drawLabels(canvas, v)
         drawCompass(canvas)
         drawScaleBar(canvas)
+    }
+
+    private fun drawRealRoads(canvas: Canvas) {
+        val segs = roadSegs ?: return
+        if (segs.isEmpty()) return
+        if (realRoadDirty) rebuildRealRoads()
+        if (scale <= 0f) return
+        // 屏幕宽度恒定：世界单位 = dp / scale
+        realRoadWhite.strokeWidth = dp(3.4f) / scale
+        realRoadPink.strokeWidth = dp(1.7f) / scale
+        canvas.drawPath(realRoadPath, realRoadWhite)
+        canvas.drawPath(realRoadPath, realRoadPink)
+    }
+
+    private fun rebuildRealRoads() {
+        realRoadPath.reset()
+        val segs = roadSegs ?: return
+        for (s in segs) {
+            realRoadPath.moveTo(worldX(s[1]), worldY(s[0]))
+            realRoadPath.lineTo(worldX(s[3]), worldY(s[2]))
+        }
+        realRoadDirty = false
     }
 
     private fun drawGreens(canvas: Canvas) {

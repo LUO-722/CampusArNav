@@ -3,6 +3,8 @@ package com.campus.arnav.ui
 import android.content.Context
 import android.graphics.Color
 import android.net.Uri
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.CheckBox
@@ -43,6 +45,9 @@ class ZhijiaTab(
     private val statusRow = LinearLayout(ctx)
     private val retryBtn = button(ctx, "重试", ctx.color(R.color.bg_card), ctx.color(R.color.accent))
     private val resultTitle = textView(ctx, "识别结果（勾选要录入的）", 15f, ctx.color(R.color.text_primary), bold = true)
+    /** 原文改过、但没重新识别时挂在结果区顶部的提示；提取过一次之后才可能出现。 */
+    private val staleHint = textView(ctx, "内容已修改，点「让智嘉提取活动」重新识别", 12f, ctx.color(R.color.accent_ink))
+    private var lastExtractedText = ""
     private var lastFailed = false
     private var emptyNotice = ""
     private val draftBox = LinearLayout(ctx)
@@ -111,6 +116,15 @@ class ZhijiaTab(
 
         resultTitle.setPadding(0, ctx.dp(8), 0, ctx.dp(4))
         resultTitle.visibility = GONE
+        staleHint.apply {
+            visibility = GONE
+            background = rounded(ctx, ctx.color(R.color.accent_soft), 10)
+            setPadding(ctx.dp(10), ctx.dp(6), ctx.dp(10), ctx.dp(6))
+        }
+        addView(staleHint, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = ctx.dp(8) })
         addView(resultTitle)
         draftBox.orientation = VERTICAL
         addView(draftBox)
@@ -124,6 +138,23 @@ class ZhijiaTab(
 
         setMode(0)
         renderDrafts() // 首屏就摆上常驻空态提示，避免按钮到导航栏之间整片空白
+        // 改过原文但没重新提取：结果区顶上挂一条提示，别让人拿旧结果去录入
+        input.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) = updateStaleHint()
+        })
+    }
+
+    /** 原文和上次识别时不一样了，就在结果区顶部提示「重新识别」。 */
+    private fun updateStaleHint() {
+        if (mode == 1) {
+            staleHint.visibility = GONE
+            return
+        }
+        val now = input.text?.toString().orEmpty().trim()
+        staleHint.visibility =
+            if (lastExtractedText.isNotBlank() && now != lastExtractedText.trim()) VISIBLE else GONE
     }
 
     private fun setMode(m: Int) {
@@ -143,6 +174,7 @@ class ZhijiaTab(
         } else {
             input.hint = "粘贴 https://… 网址（公众号文章可能被反爬，建议截图）"
         }
+        updateStaleHint()
     }
 
     private fun pickImage() {
@@ -177,6 +209,7 @@ class ZhijiaTab(
             return
         }
         retryBtn.visibility = GONE
+        staleHint.visibility = GONE
         if (mode == 1) {
             val uri = imageUri ?: run { ctx.toast("先选一张通知截图"); return }
             val online = SettingsStore.extractOnline(ctx)
@@ -341,7 +374,10 @@ class ZhijiaTab(
         } else {
             ""
         }
+        // 记下这次识别用的原文：之后原文一改，顶部就提示重新识别
+        lastExtractedText = if (mode == 1) "" else input.text?.toString().orEmpty()
         renderDrafts()
+        updateStaleHint()
     }
 
     /** 彻底没跑起来（网页抓不到等）：给一句人话 + 引导，并露出「重试」。 */
@@ -354,7 +390,9 @@ class ZhijiaTab(
         emptyNotice = "可点右侧「重试」再跑一次，或把通知原文补全（时间、地点、活动名）后重新提取。"
         status.text = sanitize(message)
         status.setTextColor(Color.parseColor("#E8447A"))
+        lastExtractedText = if (mode == 1) "" else input.text?.toString().orEmpty()
         renderDrafts()
+        updateStaleHint()
     }
 
     /** 把异常翻成人话，并去掉 Key/接口地址/模型名等不该给学生看的东西。 */

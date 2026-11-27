@@ -71,6 +71,15 @@ class CampusVector(
         return CampusVector(a, b2, c, d, buildings, water, greens, roads, labels)
     }
 
+    /**
+     * 用给定经纬范围替换 bounds。
+     *
+     * 用途：世界坐标必须等于**卫星底图**（`assets/campus_base.json`）的地理范围，
+     * 底图才会 1:1 铺满、不会被拉伸，路线/蓝点/楼名才不会整体错位。
+     */
+    fun withBounds(latMin: Double, latMax: Double, lonMin: Double, lonMax: Double): CampusVector =
+        CampusVector(latMin, latMax, lonMin, lonMax, buildings, water, greens, roads, labels)
+
     fun buildingNear(lat: Double, lon: Double, maxMeters: Double = 60.0): Shape? {
         var best: Shape? = null
         var bestD = Double.MAX_VALUE
@@ -90,6 +99,7 @@ class CampusVector(
 
     companion object {
         private const val ASSET = "campus_vector.json"
+        private const val BASE_ASSET = "campus_base.json"
 
         /** 多边形的几何中心（顶点平均，够用）。 */
         fun center(s: Shape): Pair<Double, Double>? {
@@ -106,13 +116,36 @@ class CampusVector(
         @Volatile
         private var cached: CampusVector? = null
 
-        /** 读取并解析 `assets/campus_vector.json`；失败返回 null（调用方退化到卫星图底图）。 */
+        /**
+         * 卫星底图（`assets/campus_base.json`）自带的地理范围，顺序 [latMin, latMax, lonMin, lonMax]。
+         * 读不到或退化时返回 null。
+         */
+        fun baseBounds(ctx: Context): DoubleArray? = try {
+            val o = JSONObject(ctx.assets.open(BASE_ASSET).bufferedReader().use { it.readText() })
+            doubleArrayOf(
+                o.optDouble("latMin", 0.0),
+                o.optDouble("latMax", 0.0),
+                o.optDouble("lonMin", 0.0),
+                o.optDouble("lonMax", 0.0)
+            ).takeIf { it[1] - it[0] > 1e-6 && it[3] - it[2] > 1e-6 }
+        } catch (t: Throwable) {
+            null
+        }
+
+        /**
+         * 读取并解析 `assets/campus_vector.json`；失败返回 null（调用方退化到卫星图底图）。
+         *
+         * 注意：解析后会用 [baseBounds] 把 bounds 对齐到卫星底图的真实范围 ——
+         * 否则 [com.campus.arnav.ui.VectorMapView] 会按矢量包围盒去拉伸底图，出现「图被压扁 + 路线错位」。
+         */
         fun load(ctx: Context): CampusVector? {
             cached?.let { return it }
             return synchronized(this) {
                 cached ?: try {
-                    parse(ctx.assets.open(ASSET).bufferedReader().use { it.readText() })
-                        .also { cached = it }
+                    val v = parse(ctx.assets.open(ASSET).bufferedReader().use { it.readText() })
+                    val g = baseBounds(ctx)
+                    val fixed = if (g != null) v.withBounds(g[0], g[1], g[2], g[3]) else v
+                    fixed.also { cached = it }
                 } catch (t: Throwable) {
                     null
                 }

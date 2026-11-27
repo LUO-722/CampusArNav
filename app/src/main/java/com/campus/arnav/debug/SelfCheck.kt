@@ -1,23 +1,31 @@
-﻿package com.campus.arnav.debug
+package com.campus.arnav.debug
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.RectF
+import android.view.View
 import com.campus.arnav.agent.AgentEngine
 import com.campus.arnav.agent.NoticeExtractor
 import com.campus.arnav.agent.OfflineExtractor
 import com.campus.arnav.core.CampusProjection
+import com.campus.arnav.core.CampusRoads
+import com.campus.arnav.core.CampusVector
 import com.campus.arnav.core.CoordTransform
 import com.campus.arnav.core.GeoUtils
 import com.campus.arnav.data.AppDb
 import com.campus.arnav.data.AuthStore
 import com.campus.arnav.data.ChatMsg
 import com.campus.arnav.data.ChatStore
+import com.campus.arnav.data.Course
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.Activity
 import com.campus.arnav.data.ScheduleLogic
 import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.kb.KbIndex
 import com.campus.arnav.net.JwxtClient
+import com.campus.arnav.ui.TimetableGridView
 import java.io.File
 import org.json.JSONObject
 
@@ -558,6 +566,150 @@ object SelfCheck {
                 runCatching { SQLiteDatabase.deleteDatabase(f) }
             }
         }
+        // ---- 0.21.0 回归：矢量底图 / 真实路网 / 活动时间比例 / 示例角标 ----
+
+        check("矢量底图范围") {
+            val v = CampusVector.load(ctx)
+                ?: throw Skip("campus_vector.json 还没生成或解析失败（地图会退化到卫星位图底图）")
+            val latSpan = v.latMax - v.latMin
+            val lonSpan = v.lonMax - v.lonMin
+            if (latSpan !in 0.005..0.02) {
+                throw Fail(
+                    "矢量底图纬度跨度 " + num(latSpan) + "°（约 " + (latSpan * 111000).toInt() +
+                        " m），应在 0.005~0.02°：bounds 或测绘点写错了，整张图会被拉扁/拉长"
+                )
+            }
+            if (lonSpan !in 0.004..0.02) {
+                throw Fail(
+                    "矢量底图经度跨度 " + num(lonSpan) + "°（约 " + (lonSpan * 92000).toInt() +
+                        " m），应在 0.004~0.02°：bounds 或测绘点写错了"
+                )
+            }
+            val baseText = assetText(ctx, BASE_ASSET)
+                ?: throw Skip("campus_base.json 缺失（卫星底图的对位基准），本轮只查跨度，不做 bounds 比对")
+            val b = try {
+                JSONObject(baseText)
+            } catch (e: Exception) {
+                throw Fail("campus_base.json 不是合法 JSON：" + (e.message ?: e.javaClass.simpleName))
+            }
+            val bLatMin = b.optDouble("latMin", Double.NaN)
+            val bLatMax = b.optDouble("latMax", Double.NaN)
+            val bLonMin = b.optDouble("lonMin", Double.NaN)
+            val bLonMax = b.optDouble("lonMax", Double.NaN)
+            if (bLatMin.isNaN() || bLatMax.isNaN() || bLonMin.isNaN() || bLonMax.isNaN() ||
+                bLatMax <= bLatMin || bLonMax <= bLonMin
+            ) {
+                throw Fail("campus_base.json 的 bounds 不合法（latMax/lonMax 必须大于 Min）")
+            }
+            // 底图是卫星切片（比实测校区大一圈），矢量图取内接框，所以两者**中心必须重合**；
+            // 中心一偏，楼点/路线在图上的整体位置就错位（不重叠但看起来"都对"）。
+            val tol = 1e-6
+            val dLat = Math.abs((v.latMin + v.latMax) / 2 - (bLatMin + bLatMax) / 2)
+            val dLon = Math.abs((v.lonMin + v.lonMax) / 2 - (bLonMin + bLonMax) / 2)
+            if (dLat > tol || dLon > tol) {
+                throw Fail(
+                    "矢量图中心与 campus_base.json 偏了 " + fmt6(dLat) + "°/" + fmt6(dLon) +
+                        "°（上限 1e-6°≈0.1 m）：楼点会整体偏移"
+                )
+            }
+            if (v.latMin < bLatMin - tol || v.latMax > bLatMax + tol ||
+                v.lonMin < bLonMin - tol || v.lonMax > bLonMax + tol
+            ) {
+                throw Fail(
+                    "矢量图范围超出 campus_base.json：base [" + fmt6(bLatMin) + "~" + fmt6(bLatMax) +
+                        "] / 矢量 [" + fmt6(v.latMin) + "~" + fmt6(v.latMax) + "]"
+                )
+            }
+            true
+        }
+
+        check("路线合理性") {
+            if (!CampusRoads.load(ctx)) throw Skip("campus_roads.json 读不到（导航会退化到旧路网）")
+            val near = CampusRoads.route(ctx, "南门", "明志楼")
+                ?: throw Fail("南门 → 明志楼 算不出路线：楼名解析或入口节点对不上（resolve/entrance）")
+            if (near.distanceMeters !in 30..150) {
+                throw Fail(
+                    "南门 → 明志楼 步行 " + near.distanceMeters + " m，应在 30~150 m" +
+                        "（两点直距约 52 m：绕大圈或瞬移都算错，先查 entrance 吸附与边权）"
+                )
+            }
+            val far = CampusRoads.route(ctx, "南门", "弘毅楼")
+                ?: throw Fail("南门 → 弘毅楼 算不出路线")
+            if (far.distanceMeters !in 200..600) {
+                throw Fail(
+                    "南门 → 弘毅楼 步行 " + far.distanceMeters + " m，应在 200~600 m（直距约 307 m）"
+                )
+            }
+            if (CampusRoads.routeFromPoint(ctx, 34.5, 117.5, "明志楼") != null) {
+                throw Fail(
+                    "校外点（34.5, 117.5，离最近路网 20 km）也算出了路线：400 m 吸附上限失效，" +
+                        "用户在别的城市会被「瞬移」到校内"
+                )
+            }
+            true
+        }
+
+        check("活动时间比例") {
+            val probe = timetableProbe(ctx)
+            val rowTop = probe.headerH + probe.rowH * 2f
+            val rowBottom = probe.headerH + probe.rowH * 3f
+            val y = probe.yForTime("10:00", 3)
+            if (y < rowTop - 0.5f || y > rowBottom + 0.5f) {
+                throw Fail(
+                    "10:00 画到了第 3 节之外（y=" + num(y.toDouble()) + "，第 3 节 y 区间 " +
+                        num(rowTop.toDouble()) + "~" + num(rowBottom.toDouble()) +
+                        "）：活动块又被拉成整节了，先查 yForTime 的按分钟插值"
+                )
+            }
+            val frac = (y - rowTop) / probe.rowH
+            if (frac > 0.25f) {
+                throw Fail(
+                    "10:00 应在第 3 节（09:55-10:35）开头 1/8 处，实际在 " +
+                        num((frac * 8).toDouble()) + "/8"
+                )
+            }
+            val y2 = probe.yForTime("11:30", 5)
+            val top5 = probe.headerH + probe.rowH * 4f
+            if (y2 < top5 - 0.5f) {
+                throw Fail(
+                    "11:30 落到第 5 节（11:25-12:05）之上（y=" + num(y2.toDouble()) +
+                        "，第 5 节顶 " + num(top5.toDouble()) + "）：跨节插值算错"
+                )
+            }
+            true
+        }
+
+        check("示例标识不遮字") {
+            val probe = timetableProbe(ctx)
+            val demo = Course(
+                name = "示例：高等数学",
+                teacher = "示例老师",
+                location = "博学楼 101",
+                weekday = 1,
+                startPeriod = 3,
+                endPeriod = 4,
+                weeks = "1-20",
+                color = 0xFFE7D6F5.toInt(),
+                source = "demo"
+            )
+            val rect = probe.drawCourse(demo)
+            val badge = probe.demoBadgeRect()
+            val d = probe.density
+            if (d <= 0f) throw Fail("课表视图 density=" + d + "，无法换算 dp")
+            val topDp = (badge.top - rect.top) / d
+            val bottomDp = (badge.bottom - rect.top) / d
+            if (topDp < -0.5f || topDp > 4f) {
+                throw Fail("示例角标离课块顶 " + num(topDp.toDouble()) + "dp，应贴顶（约 2dp）")
+            }
+            if (bottomDp > 13f) {
+                throw Fail(
+                    "示例角标占到课块顶部 " + num(bottomDp.toDouble()) + "dp，会压住课名" +
+                        "（课名从 15dp 起画；要求「角标高 2dp 边距 + 高度 ≤ 13dp」）"
+                )
+            }
+            true
+        }
+
         return out
     }
 
@@ -587,6 +739,7 @@ object SelfCheck {
     private const val CALIB_ASSET = "campus_calib.json"
     private const val GRAPH_ASSET = "campus_graph.json"
     private const val ORTHO_KIND = "campus_ortho"
+    private const val BASE_ASSET = "campus_base.json"
 
     /** 环境未就绪（对应资产还没生成）：记为跳过，不算失败。 */
     private class Skip(val why: String) : Exception(why)
@@ -619,6 +772,9 @@ object SelfCheck {
 
     /** 小数只留一位，失败文案好读。 */
     private fun num(v: Double): String = (Math.round(v * 10.0) / 10.0).toString()
+
+    /** 经纬度要 6 位小数才看得见 1e-6 量级的偏差。 */
+    private fun fmt6(v: Double): String = String.format(java.util.Locale.US, "%.6f", v)
 
     private fun assetText(ctx: Context, name: String): String? = try {
         ctx.assets.open(name).bufferedReader(Charsets.UTF_8).use { it.readText() }
@@ -711,5 +867,85 @@ object SelfCheck {
             }
         }
         return GraphData(nodes, edges, dests)
+    }
+
+    // ---- 课表视图探针 ----
+    // 「按时间比例画活动块」和「示例角标不遮课名」都发生在 TimetableGridView 的私有绘图代码里，
+    // 从外面只能靠反射读到几何量；反射失败说明 UI 重构过，自检要跟着改（抛 Skip 而不是红叉）。
+
+    /** 课表视图的反射探针：只读字段/调用私有函数，不改 UI 代码。 */
+    private class TimetableProbe(val view: View) {
+
+        val density: Float = floatField("density")
+        val periodW: Float = floatField("periodW")
+        val dayW: Float = floatField("dayW")
+        val headerH: Float = floatField("headerH")
+        val rowH: Float = floatField("rowH")
+
+        private fun field(name: String): Any? = try {
+            view.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(view)
+        } catch (e: ReflectiveOperationException) {
+            throw Skip("课表视图里找不到字段 $name（UI 重构过？离线自检要跟着改）")
+        }
+
+        private fun floatField(name: String): Float {
+            val v = field(name)
+            return (v as? Number)?.toFloat()
+                ?: throw Skip("课表视图字段 $name 不是数字（UI 重构过？离线自检要跟着改）")
+        }
+
+        private fun method(name: String, vararg types: Class<*>): java.lang.reflect.Method = try {
+            view.javaClass.getDeclaredMethod(name, *types).apply { isAccessible = true }
+        } catch (e: ReflectiveOperationException) {
+            throw Skip("课表视图里找不到函数 $name（UI 重构过？离线自检要跟着改）")
+        }
+
+        /** 调用私有的「把 hhmm 映射成 y 坐标」。 */
+        fun yForTime(hhmm: String, fallbackPeriod: Int): Float {
+            val m = method("yForTime", String::class.java, Integer.TYPE)
+            return (m.invoke(view, hhmm, fallbackPeriod) as? Number)?.toFloat()
+                ?: throw Skip("yForTime 没返回数字（UI 重构过？离线自检要跟着改）")
+        }
+
+        /** 把课画到一张离屏 Bitmap 上（不显示），返回它的矩形。 */
+        fun drawCourse(course: Course): RectF {
+            val grid = view as? TimetableGridView
+                ?: throw Skip("课表视图类型不对（UI 重构过？离线自检要跟着改）")
+            grid.courses = listOf(course)
+            val w = 560
+            val h = (headerH + rowH * 12f).toInt() + 8
+            view.measure(
+                View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY)
+            )
+            view.layout(0, 0, w, h)
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            try {
+                view.draw(Canvas(bmp))
+            } finally {
+                bmp.recycle()
+            }
+            val m = method("courseRect", Course::class.java)
+            return m.invoke(view, course) as? RectF
+                ?: throw Skip("courseRect 没返回矩形（UI 重构过？离线自检要跟着改）")
+        }
+
+        /** 最近一次绘制里示例角标占的矩形；空矩形＝没画出来或被改名。 */
+        fun demoBadgeRect(): RectF {
+            val r = field("badgeRect") as? RectF
+                ?: throw Skip("课表视图里找不到 badgeRect（UI 重构过？离线自检要跟着改）")
+            if (r.isEmpty) {
+                throw Skip("示例角标没画出来（课程 source 不是 demo，或角标改了画法/改名）")
+            }
+            return RectF(r)
+        }
+    }
+
+    private fun timetableProbe(ctx: Context): TimetableProbe = try {
+        TimetableProbe(TimetableGridView(ctx))
+    } catch (e: Skip) {
+        throw e
+    } catch (e: Exception) {
+        throw Skip("课表视图构造不出来：" + (e.message ?: e.javaClass.simpleName))
     }
 }

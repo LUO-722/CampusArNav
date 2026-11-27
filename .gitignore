@@ -34,3 +34,8 @@ _内网登录排查.md
 _*.png
 
 __pycache__/
+
+# 发布签名（本机生成，不入库）：keystore.properties 引用同目录的 zhijia-release.jks
+/keystore.properties
+/zhijia-release.jks
+*.jks

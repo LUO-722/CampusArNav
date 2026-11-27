@@ -41,6 +41,12 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
     private val weekBox = LinearLayout(ctx)
     /** 顶部「当前是示例课表」提示条：全部是示例数据时显示。 */
     private val demoTip = LinearLayout(ctx)
+    /** 翻到寒暑假/节假日那一周时的说明条。 */
+    private val breakTip = textView(ctx, "", 12f, ctx.color(R.color.accent_ink)).apply {
+        setPadding(ctx.dp(10), ctx.dp(6), ctx.dp(10), ctx.dp(6))
+        background = rounded(ctx, ctx.color(R.color.accent_soft), 10)
+        visibility = GONE
+    }
 
     private val dayNavLabel = textView(ctx, "", 15f, ctx.color(R.color.text_primary), bold = true).apply {
         gravity = Gravity.CENTER
@@ -71,6 +77,29 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         addView(demoTip, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = ctx.dp(8) })
+
+        addView(breakTip, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = ctx.dp(6) })
+
+        run {
+            val g = android.view.GestureDetector(ctx, object : android.view.GestureDetector.SimpleOnGestureListener() {
+                override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, vx: Float, vy: Float): Boolean {
+                    if (e1 == null) return false
+                    val dx = e2.x - e1.x
+                    val dy = e2.y - e1.y
+                    if (Math.abs(dx) > 90 * resources.displayMetrics.density && Math.abs(dx) > Math.abs(dy) * 1.6f) {
+                        switchWeek(if (dx < 0) 1 else -1)
+                        return true
+                    }
+                    return false
+                }
+            })
+            grid.setOnTouchListener { v, ev ->
+                g.onTouchEvent(ev)
+                false
+            }
+        }
 
         buildWeekBox()
         addView(weekBox)
@@ -305,7 +334,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
     // ---------------- 刷新 ----------------
 
     private fun switchWeek(d: Int) {
-        shownWeek = (shownWeek + d).coerceIn(1, ScheduleLogic.totalWeeks())
+        shownWeek = ScheduleLogic.clampWeek(shownWeek + d)
         refresh()
     }
 
@@ -336,7 +365,31 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
             .filter { it.date >= weekStart && it.date <= weekEnd }
             .sortedBy { it.date + it.startTime }
         // 节次时间用知识库《作息时间与门禁》的科文作息：8:15 开始、全年一套、不分冬夏
-        weekLabel.text = ScheduleLogic.weekLabel(shownWeek)
+        val (wkStart, wkEnd) = ScheduleLogic.weekDates(shownWeek)
+        weekLabel.text = ScheduleLogic.weekTitle(shownWeek) + "   " + wkStart.substring(5) + " — " + wkEnd.substring(5)
+        val marks = ScheduleLogic.weekMarks(shownWeek)
+        grid.dayMarks = marks
+        val holidays = ArrayList<Int>()
+        for (i in marks.indices) if (marks[i] != null && marks[i] != "补课") holidays.add(i + 1)
+        grid.holidayDays = holidays.toIntArray()
+        val bk = ScheduleLogic.weekBreak(shownWeek)
+        val tip = StringBuilder()
+        if (bk != null) tip.append("这一周在").append(bk.label).append("：").append(bk.start).append(" — ").append(bk.end)
+        val names = marks.filterNotNull().distinct().filter { it != "补课" }
+        if (names.isNotEmpty()) {
+            if (tip.isNotEmpty()) tip.append("；")
+            tip.append("本周含").append(names.joinToString("、"))
+        }
+        if (marks.any { it == "补课" }) {
+            if (tip.isNotEmpty()) tip.append("；")
+            tip.append("另有调休补课日")
+        }
+        if (tip.isEmpty()) {
+            breakTip.visibility = GONE
+        } else {
+            breakTip.text = tip.toString()
+            breakTip.visibility = VISIBLE
+        }
         subTitle.text = "${ScheduleLogic.semesterName()} · ${ScheduleLogic.totalWeeks()} 周 · 本周第 ${ScheduleLogic.currentWeek()} 周 · 科文作息 8:15—20:40"
 
         // 整张课表都是示例数据（user 还没登录、也没自己录课）时，顶部提示可以一键去登录

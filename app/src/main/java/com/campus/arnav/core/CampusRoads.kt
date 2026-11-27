@@ -284,6 +284,13 @@ object CampusRoads {
     }
 
     /** 从任意定位点算到某栋楼：先走到最近的路，再沿路网算。 */
+    /** 某目的地对应路网入口点的经纬度（用于自检：应与楼栋坐标基本重合）。 */
+    fun entrancePoint(ctx: Context, id: String): Pair<Double, Double>? {
+        if (!load(ctx)) return null
+        val i = entrance[id] ?: return null
+        return latA[i] to lonA[i]
+    }
+
     /** 真实道路段（8 米采样，边长 <= maxMeters），用于地图绘制；排除广场斜连线。 */
     fun segments(ctx: Context, maxMeters: Double = 14.0): List<DoubleArray> {
         if (!load(ctx)) return emptyList()

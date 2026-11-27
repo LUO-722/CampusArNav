@@ -222,4 +222,69 @@ object ScheduleLogic {
     /** 一节课在某天的开始/结束分钟。 */
     fun courseRange(c: Course, date: String): Pair<Int, Int> =
         periodRangeMinutes(c.startPeriod, date).first to periodRangeMinutes(c.endPeriod, date).second
+
+    // ---- 周次浏览范围与假期（可翻到学期之外） ----
+
+    /** 允许往前往后翻的周次范围：负数是开学前，超过总周数是学期结束之后。 */
+    const val WEEK_MIN = -26
+    const val WEEK_MAX = 60
+
+    fun clampWeek(w: Int): Int = w.coerceIn(WEEK_MIN, WEEK_MAX)
+
+    /** 学期之外的周次给个明确说法，别一律叫「第 N 周」。 */
+    fun weekTitle(week: Int): String = when {
+        week < 1 -> "开学前 " + (1 - week) + " 周"
+        week > totalWeeksValue -> "学期结束后 " + (week - totalWeeksValue) + " 周"
+        else -> "第 " + week + " 周"
+    }
+
+    /** 一段假期。 */
+    data class Break(val label: String, val start: String, val end: String) {
+        fun covers(date: String): Boolean = date >= start && date <= end
+    }
+
+    /** 学院校历里的寒暑假（来源：知识库「校历」，只收录已知学期）。 */
+    private val breaks = listOf(
+        Break("寒假", "2026-01-17", "2026-03-04"),
+        Break("暑假", "2026-07-14", "2026-08-31"),
+        Break("寒假", "2027-01-16", "2027-02-26")
+    )
+
+    fun breakOf(date: String): Break? = breaks.firstOrNull { it.covers(date) }
+
+    /** 这一周 7 天里只要有一段落进假期，就返回那段假期。 */
+    fun weekBreak(week: Int): Break? {
+        for (wd in 1..7) {
+            val b = breakOf(dateOf(week, wd))
+            if (b != null) return b
+        }
+        return null
+    }
+
+    /** 已知节假日与调休（来源：学院 2026 年中秋国庆放假通知）。 */
+    private val dayMarks: Map<String, String> = HashMap<String, String>().apply {
+        put("2026-09-25", "中秋")
+        put("2026-09-26", "国庆")
+        put("2026-09-27", "国庆")
+        put("2026-09-28", "国庆")
+        put("2026-09-29", "国庆")
+        put("2026-09-30", "国庆")
+        put("2026-10-01", "国庆")
+        put("2026-10-02", "国庆")
+        put("2026-10-03", "国庆")
+        put("2026-10-04", "国庆")
+        put("2026-10-05", "国庆")
+        put("2026-10-06", "国庆")
+        put("2026-10-07", "国庆")
+        put("2027-01-01", "元旦")
+        put("2026-09-20", "补课")
+        put("2026-10-10", "补课")
+    }
+
+    fun markOf(date: String): String? = dayMarks[date]
+
+    /** 一周 7 天各自的节假日标记（无标记为 null）。 */
+    fun weekMarks(week: Int): Array<String?> = Array(7) { i -> markOf(dateOf(week, i + 1)) }
+
+    fun weekDates(week: Int): Pair<String, String> = dateOf(week, 1) to dateOf(week, 7)
 }

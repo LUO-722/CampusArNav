@@ -31,6 +31,10 @@ class TimetableGridView @JvmOverloads constructor(
         set(v) { field = v; invalidate() }
     /** 本周（只传本周日期范围内的）活动，按时间画进格子。 */
     var activities: List<Activity> = emptyList()
+    /** 每个星期几的节假日标记（周一..周日，null=无）。 */
+    var dayMarks: Array<String?>? = null
+    /** 节假日所在的星期几（1..7），这些列会加一层淡色底。 */
+    var holidayDays: IntArray = IntArray(0)
         set(v) { field = v; invalidate() }
 
     var onCourseTap: ((Course) -> Unit)? = null
@@ -60,6 +64,13 @@ class TimetableGridView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
     }
     /** 节次时间：08:15 这类小字，画在节次号下面。 */
+    private val holidayPaint = Paint().apply { color = 0x14E8447A }
+    private val dayMarkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xCCD6455F.toInt()
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+    }
+
     private val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF7E6C86.toInt()
         textSize = 8f * density
@@ -151,7 +162,15 @@ class TimetableGridView @JvmOverloads constructor(
         val days = arrayOf("一", "二", "三", "四", "五", "六", "日")
         for (d in 0 until 7) {
             val cx = periodW + dayW * d + dayW / 2
-            canvas.drawText(days[d], cx, headerH * 0.68f, headPaint)
+            if (holidayDays.isNotEmpty() && d + 1 in holidayDays) {
+                canvas.drawRect(periodW + dayW * d, 0f, periodW + dayW * (d + 1), headerH + rowH * 12, holidayPaint)
+            }
+            canvas.drawText(days[d], cx, headerH * 0.62f, headPaint)
+            val mk = dayMarks?.getOrNull(d)
+            if (!mk.isNullOrEmpty()) {
+                dayMarkPaint.textSize = 7.5f * density
+                canvas.drawText(mk, cx, headerH - 4 * density, dayMarkPaint)
+            }
         }
         canvas.drawLine(periodW, 0f, periodW, headerH + rowH * 12, linePaint)
 

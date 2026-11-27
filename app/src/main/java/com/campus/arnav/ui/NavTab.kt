@@ -73,6 +73,9 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
     /** 起点模式：true = 我的位置（有定位才生效），false = 南门。 */
     private var fromMe = false
+    private var guideText: android.widget.TextView? = null
+    private var routePoints: List<Pair<Double, Double>> = emptyList()
+
     private var following = false
 
     private var fixLat: Double = RouteRepository.gate.lat
@@ -107,6 +110,9 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         titleCol.addView(textView(ctx, "校园导航", 22f, ctx.color(R.color.text_primary), bold = true))
         titleCol.addView(textView(ctx, "离线路网 · 2D 地图 · 步行路线", 11f, ctx.color(R.color.text_secondary)))
         head.addView(titleCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        head.addView(button(ctx, "图例", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
+            setOnClickListener { showLegend() }
+        }, LinearLayout.LayoutParams(ctx.dp(56), ctx.dp(34)).apply { rightMargin = ctx.dp(6) })
         head.addView(button(ctx, "更多", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
             setOnClickListener { showMore() }
         }, LinearLayout.LayoutParams(ctx.dp(72), ctx.dp(34)))
@@ -124,16 +130,6 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         val mapFrame = FrameLayout(ctx)
         mapFrame.addView(map, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-        val legendBtn = textView(ctx, "图例", 11f, ctx.color(R.color.accent_ink), bold = true).apply {
-            setPadding(ctx.dp(10), ctx.dp(6), ctx.dp(10), ctx.dp(6))
-            background = rounded(ctx, ctx.color(R.color.bg_card), 12)
-            setOnClickListener { showLegend() }
-        }
-        mapFrame.addView(legendBtn, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            gravity = Gravity.TOP or Gravity.END
-            rightMargin = ctx.dp(8)
-            topMargin = ctx.dp(8)
-        })
 
         val compass = CompassView(ctx).apply {
             isClickable = true
@@ -155,9 +151,8 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
             topMargin = ctx.dp(6)
         })
         mapFrame.addView(zoomCol, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
+            gravity = Gravity.CENTER_VERTICAL or Gravity.END
             rightMargin = ctx.dp(8)
-            bottomMargin = ctx.dp(8)
         })
 
         mapCard.addView(mapFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(300)))
@@ -417,6 +412,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         fromMe = true
         startLabel.text = "起点：我的位置"
         val dest = destName ?: return
+        updateGuideFrom(fix.lat, fix.lon)
         // 跟随模式：地图跟着蓝点走，不重算路线（以前每个定位点都重排页面）
         if (following) {
             map.zoomTo(fix.lat, fix.lon, map.currentScale())
@@ -424,6 +420,35 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         }
         // 起点变了才更新路线，且走出 15 米以上才重算，重算时不再重置视角
         if (moved) plan(dest, refit = false)
+    }
+
+    /** 用当前定位更新「剩余距离 · 下一步」。 */
+    private fun updateGuideFrom(lat: Double, lon: Double) {
+        val gt = guideText ?: return
+        val pts = routePoints
+        if (pts.size < 2) return
+        var bestIdx = 0
+        var bestD = Double.MAX_VALUE
+        for (i in pts.indices) {
+            val dd = GeoUtils.distanceMeters(lat, lon, pts[i].first, pts[i].second)
+            if (dd < bestD) {
+                bestD = dd
+                bestIdx = i
+            }
+        }
+        var remain = 0.0
+        for (i in bestIdx until pts.size - 1) {
+            remain += GeoUtils.distanceMeters(pts[i].first, pts[i].second, pts[i + 1].first, pts[i + 1].second)
+        }
+        val dest = destName ?: return
+        val min = (remain / 80.0).coerceAtLeast(1.0).toInt()
+        gt.text = if (bestD > 60) {
+            "还在路线外约 ${bestD.toInt()} 米；剩余 ${remain.toInt()} 米（约 $min 分钟）到 $dest"
+        } else if (remain < 25) {
+            "已到达 $dest 附近（剩余 ${remain.toInt()} 米）"
+        } else {
+            "剩余 ${remain.toInt()} 米 · 约 $min 分钟到 $dest"
+        }
     }
 
     private fun clearRoute() {
@@ -475,6 +500,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         path = p
         val target = RouteRepository.buildings(ctx).firstOrNull { it.name == name }
         if (target != null) map.setDestination(target.lat, target.lon, target.name) else map.setDestination(null, null, null)
+        routePoints = p.points
         map.setRoute(p.points)
         if (refit) map.fitRoute(p.points)
         if (fromMe && haveFix) map.setMyLocation(fixLat, fixLon, fixBearing)
@@ -511,6 +537,12 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
             )
         )
         wrap.addView(head)
+
+        val guide = textView(ctx, "按「跟随」开始实时引导：会显示剩余距离和下一步。", 11f, ctx.color(R.color.accent_ink)).apply {
+            setPadding(0, ctx.dp(3), 0, 0)
+        }
+        guideText = guide
+        wrap.addView(guide)
 
         val steps = p.steps.take(3)
         for ((i, s) in steps.withIndex()) {

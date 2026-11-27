@@ -649,6 +649,30 @@ object SelfCheck {
             true
         }
 
+        check("楼栋入口与路网一致") {
+            if (!CampusRoads.load(ctx)) throw Skip("campus_roads.json 读不到")
+            var worst = 0.0
+            var worstName = ""
+            var checked = 0
+            for (b in com.campus.arnav.core.RouteRepository.buildings(ctx)) {
+                val p = CampusRoads.entrancePoint(ctx, b.id) ?: continue
+                checked++
+                val d = GeoUtils.distanceMeters(b.lat, b.lon, p.first, p.second)
+                if (d > worst) {
+                    worst = d
+                    worstName = b.name
+                }
+            }
+            if (checked == 0) throw Skip("campus_roads.json 里没有 entrance 表")
+            if (worst > 90.0) {
+                throw Fail(
+                    "最远入口偏 $worstName " + worst.toInt() + " 米（应 ≤90米）：" +
+                        "entrance 里的门口节点没跟着楼栋坐标一起改，路线端点会画错位置"
+                )
+            }
+            true
+        }
+
         check("活动时间比例") {
             val probe = timetableProbe(ctx)
             val rowTop = probe.headerH + probe.rowH * 2f

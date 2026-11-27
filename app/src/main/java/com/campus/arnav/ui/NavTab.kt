@@ -156,6 +156,21 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         })
 
         mapCard.addView(mapFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(300)))
+        // 底图是竖版（约 729m × 984m），360dp 宽时给 300dp 高会左右留出大片空白：
+        // 这里按底图宽高比把地图卡调高，让卫星图真正铺满，最多占屏高 58%。
+        mapFrame.post {
+            val w = mapFrame.width
+            if (w > 0) {
+                val ratio = if (map.baseAspect > 0.2f) map.baseAspect else 1.35f
+                val maxH = (resources.displayMetrics.heightPixels * 0.40f).toInt()
+                val h = (w * ratio).toInt().coerceIn(ctx.dp(220), maxH)
+                val lp = mapFrame.layoutParams as LinearLayout.LayoutParams
+                if (lp.height != h) {
+                    lp.height = h
+                    mapFrame.layoutParams = lp
+                }
+            }
+        }
         addView(mapCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = ctx.dp(8)
         })

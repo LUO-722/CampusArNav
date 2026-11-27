@@ -94,6 +94,10 @@ class VectorMapView @JvmOverloads constructor(
 
     private var lat0 = 0.0
     private var lon0 = 0.0
+    /** 底图宽高比（worldH / worldW），NavTab 用它把地图卡调成同样的比例。 */
+    var baseAspect: Float = 1f
+        private set
+
     private var worldW = 1f
     private var worldH = 1f
     private var mPerLon = 1.0
@@ -370,6 +374,7 @@ class VectorMapView @JvmOverloads constructor(
         val lonSpan = v.lonMax - v.lonMin
         worldW = (lonSpan * mPerLon).toFloat().coerceAtLeast(1f)
         worldH = (latSpan * M_PER_DEG_LAT).toFloat().coerceAtLeast(1f)
+        baseAspect = worldH / worldW
 
         buildBuildings(v)
         buildFaces(v)
@@ -382,7 +387,11 @@ class VectorMapView @JvmOverloads constructor(
         val worldChanged = Math.abs(worldW - prevW) > 0.5f || Math.abs(worldH - prevH) > 0.5f
         if (!laidOut || width <= 0 || height <= 0 || worldChanged) {
             laidOut = false
-            if (width > 0 && height > 0) onSizeChanged(width, height, 0, 0)
+            if (width > 0 && height > 0) {
+                onSizeChanged(width, height, 0, 0)
+                // 换了底图/世界范围后重新铺满并居中，避免停在旧比例上缩成一小块
+                fitAll()
+            }
         }
         invalidate()
     }
@@ -475,8 +484,8 @@ class VectorMapView @JvmOverloads constructor(
     /** 整幅适配并居中。 */
     fun fitAll() {
         setZoomInternal(1f)
-        offX = (width - worldW * scale) / 2f
-        offY = (height - worldH * scale) / 2f
+        offX = width / 2f
+        offY = height / 2f
         clampOffsets()
         invalidate()
     }
@@ -503,7 +512,7 @@ class VectorMapView @JvmOverloads constructor(
         val bw = (maxX - minX).coerceAtLeast(40f)
         val bh = (maxY - minY).coerceAtLeast(40f)
         val target = min((width - 2 * pad) / bw, (height - 2 * pad) / bh)
-        val z = (target / fitScale).coerceIn(MIN_ZOOM, MAX_ZOOM)
+        val z = (target / fitScale).coerceIn(MIN_ZOOM, 2.4f)
         setZoomInternal(z)
         val cx = (minX + maxX) / 2f
         val cy = (minY + maxY) / 2f
@@ -641,17 +650,19 @@ class VectorMapView @JvmOverloads constructor(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (w <= 0 || h <= 0) return
-        fitScale = min(w / worldW, h / worldH)
+        // 用 cover（取较大的缩放）让底图铺满整个卡片，不留大片空白；
+        // 想看到整张校园图可以点左下角指北针 / 比例尺区域回整图，或缩小。
+        fitScale = max(w / worldW, h / worldH)
         if (!laidOut) {
             laidOut = true
             zoom = 1f
             scale = fitScale
-            offX = (w - worldW * scale) / 2f
-            offY = (h - worldH * scale) / 2f
+            offX = w / 2f
+            offY = h / 2f
         } else {
             scale = fitScale * zoom
-            offX = (w - worldW * scale) / 2f
-            offY = (h - worldH * scale) / 2f
+            offX = w / 2f
+            offY = h / 2f
         }
         clampOffsets()
         updateScaleDependent()
@@ -680,8 +691,9 @@ class VectorMapView @JvmOverloads constructor(
     private fun clampOffsets() {
         val w = worldW * scale
         val h = worldH * scale
-        offX = if (w <= width) (width - w) / 2f else offX.coerceIn(width - w, 0f)
-        offY = if (h <= height) (height - h) / 2f else offY.coerceIn(height - h, 0f)
+        // 世界坐标以 (0,0) 为中心：内容比视图小就居中，比视图大就限制在边界内
+        offX = if (w <= width) width / 2f else offX.coerceIn(width - w / 2f, w / 2f)
+        offY = if (h <= height) height / 2f else offY.coerceIn(height - h / 2f, h / 2f)
     }
 
     /** 线宽都是「米」，随缩放变化时统一刷新；同时刷新虚线参数（避免 onDraw 分配）。 */
@@ -691,8 +703,8 @@ class VectorMapView @JvmOverloads constructor(
         waterStrokePaint.strokeWidth = dp(1f) / scale
         roadCasePaint.strokeWidth = 0f // 每条路单独设，这里只是复位
         roadInnerPaint.strokeWidth = 0f
-        routeCasePaint.strokeWidth = dp(14f) / scale
-        routeCorePaint.strokeWidth = dp(8f) / scale
+        routeCasePaint.strokeWidth = dp(9f) / scale
+        routeCorePaint.strokeWidth = dp(5f) / scale
         trackPaint.strokeWidth = dp(2f) / scale
         val dash = dp(7f) / scale
         val gap = dp(5f) / scale

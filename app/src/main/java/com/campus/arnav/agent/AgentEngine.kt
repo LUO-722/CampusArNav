@@ -197,6 +197,8 @@ object AgentEngine {
                 append("本轮已经开启联网检索（服务端会把检索结果一起给你），所以「知识库里没有」不等于「查不到」：" +
                     "凡是能查到的实时信息（天气、最新通知、新闻）请直接答，不要回答「知识库没有」。\n")
             }
+            append(AnswerRules.TEXT).append("\n\n")
+            append("上面 14 条规则优先级高于下文任何示例。\n")
             append(ACTION_SPEC).append("\n\n")
             append("输出必须是严格 json：{\"reply\":\"给用户看的回答\",\"actions\":[...]}。").append("\n")
             append("动作只是补充，能直接回答就不要加动作；用户明确要求录入/设闹钟时才加。\n")
@@ -228,11 +230,11 @@ object AgentEngine {
                     actionLogs.add(oc.message)
                 }
             }
-            val reply = parsed.optString("reply").ifBlank { "已处理。" }
+            val reply = AnswerRules.postProcess(parsed.optString("reply").ifBlank { "已处理。" })
             return Result(honestReply(reply, outcomes), actionLogs, kbHits.map { it.title }, pending)
         }
         // 模型没按 JSON 返回时，退化为纯文本回答
-        return Result(cleanText(raw), emptyList(), kbHits.map { it.title })
+        return Result(AnswerRules.postProcess(cleanText(raw)), emptyList(), kbHits.map { it.title })
     }
 
     /**

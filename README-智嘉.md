@@ -4,7 +4,7 @@
 
 ## 安装包
 
-- `E:\AndroidProjects\CampusArNav\科文智嘉-debug.apk`（debug 签名；versionName / versionCode 以 `app/build.gradle` 为准，当前 0.18.1 / versionCode 46；体积 48,159,559 字节（≈44.7 MiB），包含 ML Kit 中文 OCR 模型与内置地图 SDK（只留 arm64 一份 so））
+- `E:\AndroidProjects\CampusArNav\科文智嘉-debug.apk`（debug 签名；versionName / versionCode 以 `app/build.gradle` 为准，当前 0.18.2 / versionCode 47；体积 48,159,559 字节（≈44.7 MiB），包含 ML Kit 中文 OCR 模型与内置地图 SDK（只留 arm64 一份 so））
 - 构建产物：`app\build\outputs\apk\debug\app-debug.apk`
 
 ## 五个页面
@@ -416,6 +416,13 @@ $env:GRADLE_USER_HOME='E:\Android\gradle-home'
 - 路线跳转走系统 URI，不依赖地图 SDK Key；手机未装地图 App 时用浏览器打开。
 - 0.4.0 已在真机（MIUI / Android 16，型号 2510DRK44C）验证：冷启动落在课程表（副标题含「冬季作息」）、五栏可切换、「我的」页统计与本周课程正常、编辑资料弹窗正常、「对话」历史可恢复；点 ☰ 设置页不再崩溃，Key 显示/隐藏与「高级」折叠正常，「保存设置」提示「已保存。」；离线自检 **19/19 通过**（含周次边界、冲突判断、动作确认文案、备份 JSON）；知识库自检显示「106 篇 / 560 块」。仍以 `assembleDebug` + aapt/dex 静态检查为主，离线 lint 因缺 lint-gradle 依赖未运行；AR 朝向的实地步行效果需到校园现场复核。
 - 0.6.0 的教务登录按正方 jsxsd 通用页面结构实现（表单动作/hidden/验证码、GBK 解码、rowspan 课表解析都用通用规则），但 10.110.225.76 只在校园内网可达，开发机连不上，**登录与解析未在真实教务系统上联调**；开学后连校园网实测，若页面结构与预期不同，改 JwxtClient 里的路径与字段名即可。
+## 本版（0.18.2）改进：课程表「周 / 日」切换改成整条等宽分段条
+
+- 标题「课程表」独占一行，下面是一条**通栏**的分段控件（左右各留 12dp），不再是标题右侧那个小胶囊。
+- 两段各占一半宽度、高 42dp，文字 16sp 居中；选中段是粉色圆角块 + 玫粉加粗字，未选中是浅紫灰，
+  一眼能看出当前在哪个视图。
+- 文案从「周 / 日」改成「周视图 / 日视图」，点到的区域大了好几倍，好按也不容易点错。
+
 ## 本版（0.18.1）改进：聊天输入框「一次点击就能打字」
 
 - 修掉「点一下输入框只是跟着键盘升起来、还要再点一次才能输入」的问题。原因是键盘弹起后页面补了底部

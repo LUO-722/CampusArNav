@@ -62,7 +62,9 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
         setPadding(ctx.dp(16), ctx.dp(12), ctx.dp(16), ctx.dp(8))
 
-        addView(buildHeader())
+        addView(buildHeader(), LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
 
         // 示例课表提示条：放在「周 / 日」两视图共用的顶部，切换视图不影响
         buildDemoTip()
@@ -87,33 +89,35 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
 
     private fun buildHeader(): LinearLayout {
         val header = LinearLayout(ctx).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = VERTICAL
         }
         header.addView(
             handText(ctx, "课程表", 26f, ctx.color(R.color.text_primary)),
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         )
 
+        // 周 / 日 切换：整条等宽分段控件，居中、加宽、加高，选中态更明显
         val seg = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             background = GradientDrawable().apply {
-                cornerRadius = ctx.dp(18).toFloat()
+                cornerRadius = ctx.dp(24).toFloat()
                 setColor(Color.WHITE)
                 setStroke(ctx.dp(1), ctx.color(R.color.border))
             }
-            elevation = ctx.dp(1).toFloat()
-            setPadding(ctx.dp(3), ctx.dp(3), ctx.dp(3), ctx.dp(3))
+            elevation = ctx.dp(2).toFloat()
+            setPadding(ctx.dp(4), ctx.dp(4), ctx.dp(4), ctx.dp(4))
         }
-        for ((label, idx) in listOf("周" to 0, "日" to 1)) {
+        for ((label, idx) in listOf("周视图" to 0, "日视图" to 1)) {
             val tv = if (idx == 0) segWeek else segDay
             tv.text = label
-            tv.textSize = 14f
+            tv.textSize = 16f
             tv.gravity = Gravity.CENTER
             tv.setOnClickListener { setMode(idx) }
-            seg.addView(tv, LinearLayout.LayoutParams(ctx.dp(46), ctx.dp(30)))
+            seg.addView(tv, LinearLayout.LayoutParams(0, ctx.dp(42), 1f))
         }
-        header.addView(seg, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        header.addView(seg, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = ctx.dp(10) })
         return header
     }
 
@@ -154,8 +158,9 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         mode = m
         val soft = Color.parseColor("#FFE3EE")
         for ((tv, idx) in listOf(segWeek to 0, segDay to 1)) {
-            tv.background = rounded(ctx, if (m == idx) soft else Color.TRANSPARENT, 16)
+            tv.background = rounded(ctx, if (m == idx) soft else Color.TRANSPARENT, 20)
             tv.setTextColor(if (m == idx) ctx.color(R.color.accent_ink) else ctx.color(R.color.text_secondary))
+            tv.paint.isFakeBoldText = m == idx
         }
         weekBox.visibility = if (m == 0) View.VISIBLE else View.GONE
         dayBox.visibility = if (m == 1) View.VISIBLE else View.GONE

@@ -1,6 +1,7 @@
 package com.campus.arnav.ui
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
@@ -54,6 +55,17 @@ class VectorMapView @JvmOverloads constructor(
     // ------------------------------------------------------------------ 数据
 
     private var vec: CampusVector? = null
+
+    /** 卫星实景底图层（GeoJSON 精确对齐的位图）；为 null 时用纯矢量示意层。 */
+    private var baseBmp: Bitmap? = null
+    private val baseDst = RectF()
+    private val basePaint = Paint(Paint.FILTER_BITMAP_FLAG)
+
+    /** 设置实景底图；null 恢复纯矢量绘制。 */
+    fun setBase(bmp: Bitmap?) {
+        baseBmp = bmp
+        invalidate()
+    }
 
     /** 世界坐标系原点（校园中心）与尺寸，单位米。 */
     private var lat0 = 0.0
@@ -681,10 +693,16 @@ class VectorMapView @JvmOverloads constructor(
         val save = canvas.save()
         canvas.translate(offX, offY)
         canvas.scale(scale, scale)
-        drawGreens(canvas)
-        drawWater(canvas)
-        drawRoads(canvas)
-        drawBuildings(canvas)
+        val bmp = baseBmp
+        if (bmp != null) {
+            baseDst.set(-worldW / 2f, -worldH / 2f, worldW / 2f, worldH / 2f)
+            canvas.drawBitmap(bmp, null, baseDst, basePaint)
+        } else {
+            drawGreens(canvas)
+            drawWater(canvas)
+            drawRoads(canvas)
+            drawBuildings(canvas)
+        }
         drawRoute(canvas)
         drawTrack(canvas)
         canvas.restoreToCount(save)

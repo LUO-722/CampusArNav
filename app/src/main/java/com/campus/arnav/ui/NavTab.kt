@@ -27,7 +27,7 @@ import com.campus.arnav.ArNavActivity
 import com.campus.arnav.CalibrateActivity
 import com.campus.arnav.CompassTestActivity
 import com.campus.arnav.R
-import com.campus.arnav.core.CampusGraph
+import com.campus.arnav.core.CampusRoads
 import com.campus.arnav.core.CampusVector
 import com.campus.arnav.core.RoadMerge
 import com.campus.arnav.core.TrackRecorder
@@ -55,6 +55,21 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     private var keyword = ""
     private var destName: String? = null
     private var path: CampusPath? = null
+
+    /** 卫星实景底图只解一次，失败就保持纯矢量模式。 */
+    private var baseTried = false
+    private fun ensureBaseMap() {
+        if (baseTried) return
+        baseTried = true
+        try {
+            val opts = android.graphics.BitmapFactory.Options()
+            opts.inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+            val bmp = android.graphics.BitmapFactory.decodeResource(resources, R.drawable.campus_base, opts)
+            map.setBase(bmp)
+        } catch (e: Throwable) {
+            map.setBase(null)
+        }
+    }
 
     /** 起点模式：true = 我的位置（有定位才生效），false = 南门。 */
     private var fromMe = false
@@ -200,8 +215,9 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         scroll.addView(listBox)
         addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
-        CampusGraph.load(ctx)
+        CampusRoads.load(ctx)
         map.setVector(CampusVector.load(ctx))
+        ensureBaseMap()
         updateExtraPaths()
         renderSurveyState()
         updateA11y()
@@ -249,7 +265,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         val t = TrackRecorder.stop(ctx, "测绘 " + java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA).format(java.util.Date())) ?: run { ctx.toast("没有记录到轨迹"); return }
         val r = RoadMerge.rebuild(ctx)
         updateExtraPaths()
-        CampusGraph.reload(ctx)
+        CampusRoads.reload(ctx)
         renderSurveyState()
         ctx.toast("已保存轨迹 ${t.pts.size} 个点 / ${t.meters} 米；并入路网：新增 ${r.addedEdges} 段")
     }
@@ -317,8 +333,9 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     }
 
     fun refresh() {
-        CampusGraph.load(ctx)
+        CampusRoads.load(ctx)
         map.setVector(CampusVector.load(ctx))
+        ensureBaseMap()
         updateExtraPaths()
         // setVector 会重建底图缓存，这里把已算路线/目的地/蓝点补回去（否则切 Tab 回来线就没了）
         path?.let { p -> map.setRoute(p.points) }
@@ -410,19 +427,19 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     }
 
     private fun plan(name: String, refit: Boolean = true) {
-        if (!CampusGraph.load(ctx)) {
+        if (!CampusRoads.load(ctx)) {
             ctx.toast("路网数据没读到，稍后再试")
             return
         }
         var fellBack = false
         val p = if (fromMe && haveFix) {
-            val r = CampusGraph.routeFromPoint(fixLat, fixLon, name)
+            val r = CampusRoads.routeFromPoint(ctx, fixLat, fixLon, name)
             if (r == null) {
                 fellBack = true
-                CampusGraph.route("南门", name)
+                CampusRoads.route(ctx, "南门", name)
             } else r
         } else {
-            CampusGraph.route("南门", name)
+            CampusRoads.route(ctx, "南门", name)
         }
         if (p == null) {
             ctx.toast("没能算出到「$name」的路线")
@@ -468,7 +485,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         head.addView(
             textView(
                 ctx,
-                "${p.distanceMeters} 米 · 步行约 ${(p.distanceMeters / 80).coerceAtLeast(1)} 分钟 · 示意路线",
+                "${p.distanceMeters} 米 · 沿校内道路步行约 ${(p.distanceMeters / 80).coerceAtLeast(1)} 分钟 · 示意路线",
                 11f,
                 ctx.color(R.color.text_secondary)
             )

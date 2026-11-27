@@ -1,10 +1,10 @@
-# 科文智嘉（CampusArNav 五栏版）0.19.0
+# 科文智嘉（CampusArNav 五栏版）0.19.6
 
 在原有 AR 校园导航 APK 雏形上增加的五栏「智嘉」校园助手。包名仍是 `com.campus.arnav`，可直接覆盖安装旧 debug 包。
 
 ## 安装包
 
-- `E:\AndroidProjects\CampusArNav\科文智嘉-debug.apk`（debug 签名；versionName / versionCode 以 `app/build.gradle` 为准，当前 0.19.0 / versionCode 48；体积 48,159,559 字节（≈44.7 MiB），包含 ML Kit 中文 OCR 模型与内置地图 SDK（只留 arm64 一份 so））
+- `E:\AndroidProjects\CampusArNav\科文智嘉-debug.apk`（debug 签名；versionName / versionCode 以 `app/build.gradle` 为准，当前 0.19.6 / versionCode 54；体积 48,159,559 字节（≈44.7 MiB），包含 ML Kit 中文 OCR 模型与内置地图 SDK（只留 arm64 一份 so））
 - 构建产物：`app\build\outputs\apk\debug\app-debug.apk`
 
 ## 五个页面
@@ -474,3 +474,11 @@ $env:GRADLE_USER_HOME='E:\Android\gradle-home'
 - 路网按新坐标重铺（90 个节点 / 143 条边，含楼门口短支路），绕路比降到 1.0—1.2（南门→明志楼 1.00、南门→博学楼 1.08、尚美→体育馆 1.12、至善→匠心 1.20），不再出现「走 800 米到隔壁楼」。
 - _overlay_check.png 是把 27 个点按新矩阵画回官方卫星图的校验图：全部落在对应楼体上。
 - 版本 0.17.2 / versionCode 44。
+
+## 本版（0.19.6）改进
+
+- **回复像打字一样逐字出现**：对话改走流式（SSE），模型每吐一段就刷新气泡，不再「等半天、一下子蹦出一整段」。
+- **不会再有「点不了发送」的死锁**：上一条还在等云端时，再点「发送」= 取消这条回复（输入框里的字保留）；另有 100 秒看门狗与 60 秒读超时，超时会自己放开按钮并提示重试。
+- **键盘弹起后不用再点第二次**：手指还按在屏幕上时，底部让位延后 220ms 生效（避免这次 ACTION_UP 被布局变化甩掉），布局完成后再把焦点和光标接回输入框。
+- 版本 0.19.6 / versionCode 54，安装包 48,229,130 字节。
+

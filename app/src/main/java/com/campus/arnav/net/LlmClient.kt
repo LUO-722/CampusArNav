@@ -73,6 +73,109 @@ object LlmClient {
         }
     }
 
+
+    /**
+     * 流式对话：边收边回调，界面可以像打字一样逐字出现。
+     * 返回累计正文（jsonMode=true 时就是模型吐出的 JSON 原文）。
+     */
+    fun chatStream(
+        provider: Provider,
+        messages: List<ChatMsg>,
+        jsonMode: Boolean = false,
+        search: Boolean = false,
+        onDelta: (String) -> Unit
+    ): String {
+        if (!provider.ready()) throw LlmException(NO_CHANNEL)
+        val build: (String, Boolean) -> String = { model, web ->
+            JSONObject().apply {
+                put("model", model)
+                put("temperature", 0.3)
+                put("stream", true)
+                val arr = JSONArray()
+                for (m in messages) {
+                    arr.put(JSONObject().put("role", m.role).put("content", m.content))
+                }
+                put("messages", arr)
+                if (jsonMode) put("response_format", JSONObject().put("type", "json_object"))
+                if (web) {
+                    put("enable_search", true)
+                    put("search_options", JSONObject().apply {
+                        put("forced_search", true)
+                        put("search_strategy", "standard")
+                    })
+                }
+            }.toString()
+        }
+        val chain = if (search) searchChainProvider(provider) else provider
+        val models = chain.modelChain().ifEmpty { listOf(chain.model) }
+        var last: LlmException? = null
+        for (m in models) {
+            try {
+                return postStreamOnce(chain, build(m, search), onDelta)
+            } catch (e: RetryableLlmException) {
+                last = e
+            }
+        }
+        throw last ?: LlmException(NO_CHANNEL)
+    }
+
+    private fun postStreamOnce(provider: Provider, body: String, onDelta: (String) -> Unit): String {
+        val base = endpointBase(provider.base)
+        if (!base.startsWith("http://", true) && !base.startsWith("https://", true)) {
+            throw LlmException("云端地址异常，请检查网络后重试。")
+        }
+        val conn = try {
+            URL("$base/chat/completions").openConnection() as HttpURLConnection
+        } catch (e: Exception) {
+            throw LlmException("云端地址异常，请稍后重试。")
+        }
+        try {
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.connectTimeout = 20_000
+            conn.readTimeout = 60_000
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            val token = provider.key.trim()
+            if (token.isNotEmpty()) conn.setRequestProperty("Authorization", "Bearer $token")
+            conn.setRequestProperty("Accept", "text/event-stream")
+            OutputStreamWriter(conn.outputStream, StandardCharsets.UTF_8).use { it.write(body) }
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                val err = conn.errorStream?.let {
+                    BufferedReader(InputStreamReader(it, StandardCharsets.UTF_8)).use { r -> r.readText() }
+                } ?: ""
+                val msg = friendlyError(code, err)
+                if (code == 404 || code == 429 || code >= 500) throw RetryableLlmException(msg)
+                throw LlmException(msg)
+            }
+            val acc = StringBuilder()
+            BufferedReader(InputStreamReader(conn.inputStream, StandardCharsets.UTF_8)).use { br ->
+                while (true) {
+                    val line = br.readLine() ?: break
+                    if (!line.startsWith("data:")) continue
+                    val data = line.substring(5).trim()
+                    if (data.isEmpty()) continue
+                    if (data == "[DONE]") break
+                    val obj = try { JSONObject(data) } catch (e: Exception) { continue }
+                    val arr = obj.optJSONArray("choices") ?: continue
+                    val ch = arr.optJSONObject(0) ?: continue
+                    val piece = ch.optJSONObject("delta")?.optString("content").orEmpty()
+                    if (piece.isEmpty()) continue
+                    acc.append(piece)
+                    onDelta(acc.toString())
+                }
+            }
+            if (acc.isEmpty()) throw RetryableLlmException("模型返回了空内容")
+            return acc.toString()
+        } catch (e: java.net.SocketTimeoutException) {
+            throw RetryableLlmException("等待云端回复超时，请检查网络后重试。")
+        } catch (e: java.io.IOException) {
+            throw RetryableLlmException("连不上云端（网络不可用），已切换离线知识库。")
+        } finally {
+            try { conn.disconnect() } catch (e: Exception) { }
+        }
+    }
+
     /**
      * 联网搜索要单独的模型链（见 [SettingsStore.searchProvider]）：调用方传进来的 [Provider]
      * 只保留 base/key，模型换成实测支持 `enable_search`、且在 json_object 下能正常出正文的那几个。
@@ -198,7 +301,7 @@ object LlmClient {
             conn.requestMethod = "POST"
             conn.doOutput = true
             conn.connectTimeout = 20_000
-            conn.readTimeout = 120_000
+            conn.readTimeout = 60_000
             conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
             // 内置通道的 Bearer：Key 由构建期注入，为空时就不发 Authorization 头
             val token = provider.key.trim()

@@ -3,6 +3,7 @@ package com.campus.arnav.ui
 import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
+import android.os.SystemClock
 import android.net.Uri
 import android.text.TextUtils
 import android.view.Gravity
@@ -54,6 +55,11 @@ class ChatTab(
     private val padBottom = ctx.dp(8)
     private var imeExtra = 0
     private var sending = false
+    private var streamBubble: TextView? = null
+
+    @Volatile
+    private var cancelFlag = false
+    private var lastTouchAt = 0L
     private val greeting = "你好，我是智嘉。可以问我校园制度、办事流程、楼栋位置，也能帮你录活动、加课、设闹钟、找自习的地方。"
 
     /** 当前会话 sid（构造时新开）。 */
@@ -347,6 +353,12 @@ class ChatTab(
      * 这里量出「本视图底边到窗口底边」还剩多少（主壳 62dp 底栏 + 系统导航栏），
      * 只补足键盘实际超出的那部分，让输入行贴着键盘上沿。
      */
+    /** 记一下最后一次「手指按下」的时刻，布局改动据此延时，避免吃掉这次点击。 */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) lastTouchAt = android.os.SystemClock.uptimeMillis()
+        return super.dispatchTouchEvent(ev)
+    }
+
     private fun bindImeInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
@@ -370,15 +382,26 @@ class ChatTab(
             val extra = if (fullScreen) (ime - below).coerceAtLeast(0) else 0
             if (extra != imeExtra) {
                 imeExtra = extra
-                // 重新布局会让输入框短暂丢焦点（看起来就是「点了没进去」），这里把焦点和光标接回去
-                val hadFocus = input.hasFocus()
-                val caret = input.selectionStart.coerceAtLeast(0)
-                v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, padBottom + extra)
-                if (hadFocus && !input.hasFocus()) {
-                    input.requestFocus()
-                    input.setSelection(caret.coerceAtMost(input.text?.length ?: 0))
+                val apply = Runnable {
+                    val hadFocus = input.hasFocus()
+                    val caret = input.selectionStart.coerceAtLeast(0)
+                    v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, padBottom + imeExtra)
+                    if (hadFocus && !input.hasFocus()) {
+                        input.requestFocus()
+                        input.setSelection(caret.coerceAtMost(input.text?.length ?: 0))
+                    } else if (!input.hasFocus() && imeExtra > 0) {
+                        // 第一下点击的 ACTION_UP 被布局变化吃掉时，这里替用户补上焦点，省得再点一次
+                        input.requestFocus()
+                        input.setSelection(input.text?.length ?: 0)
+                    }
+                    if (imeExtra > 0) scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
                 }
-                if (extra > 0) scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+                // 手指还按在屏幕上时先别挪：挪早了会把 ACTION_UP 甩到别处，输入框收不到光标
+                if (SystemClock.uptimeMillis() - lastTouchAt < 400L) {
+                    v.postDelayed(apply, 220L)
+                } else {
+                    apply.run()
+                }
             }
             insets
         }
@@ -426,8 +449,18 @@ class ChatTab(
     }
 
     private fun send() {
+        if (sending) {
+            // 「卡住」时给一条活路：再点一次发送 = 取消这次回复，输入框里的字保留
+            cancelFlag = true
+            sending = false
+            val b = streamBubble
+            if (b != null && b.text.isNullOrBlank()) b.text = "（已取消）"
+            streamBubble = null
+            ctx.toast("已取消这次回复")
+            return
+        }
         val text = input.text.toString().trim()
-        if (text.isEmpty() || sending || viewingHistory) return
+        if (text.isEmpty() || viewingHistory) return
         input.setText("")
         val first = history.isEmpty()
         addBubble(text, false)
@@ -435,11 +468,29 @@ class ChatTab(
         ChatStore.add(ctx, sessionId, ChatMsg("user", text))
         if (first) ChatStore.setTitle(ctx, sessionId, text)
         sending = true
+        cancelFlag = false
         val context = ctx
+        streamBubble = addBubble("…", true)
+        var lastRefresh = 0L
+        // 卡死兜底：100 秒还没回来就自动放开按钮，用户可以重发或取消
+        postDelayed({
+            if (sending) {
+                cancelFlag = true
+                sending = false
+                ctx.toast("这次回复超时了，可以再点一次「发送」重试")
+            }
+        }, 100_000L)
         Thread {
             try {
                 if (SettingsStore.chatOnline(context)) {
-                    val r = AgentEngine.ask(context, history, text)
+                    val r = AgentEngine.ask(context, history, text) { visible ->
+                        val now = System.currentTimeMillis()
+                        if (now - lastRefresh >= 40L) {
+                            lastRefresh = now
+                            post { if (!cancelFlag) showStreaming(visible) }
+                        }
+                    }
+                    if (cancelFlag) return@Thread
                     post { complete(r) }
                 } else {
                     // 没网 / 云端不可用：不报错，直接用本机知识库答（BM25，不联网）
@@ -447,6 +498,7 @@ class ChatTab(
                     post { completeOffline(reply) }
                 }
             } catch (e: Exception) {
+                if (cancelFlag) return@Thread
                 // 断网 / 模型全部限流 / 云端报错：不让对话断在这里，直接用离线知识库答
                 val reply = answerOffline(context, text)
                 post { completeOffline(reply + "\n\n（云端暂时不可用，已用离线知识库回答）") }
@@ -478,7 +530,7 @@ class ChatTab(
     }
 
     private fun completeOffline(reply: String) {
-        addBubble(reply, true)
+        markStreaming(reply)
         history.add(ChatMsg("assistant", reply))
         ChatStore.add(ctx, sessionId, ChatMsg("assistant", reply))
         while (history.size > 30) history.removeAt(0)
@@ -486,7 +538,7 @@ class ChatTab(
     }
 
     private fun complete(r: AgentEngine.Result) {
-        addBubble(r.reply, true)
+        markStreaming(r.reply)
         if (r.actions.isNotEmpty()) {
             addLog(r.actions.joinToString("\n") { "· $it" })
         }
@@ -540,7 +592,7 @@ class ChatTab(
         return t
     }
 
-    private fun addBubble(text: String, assistant: Boolean) {
+    private fun addBubble(text: String, assistant: Boolean): TextView {
         val bubble = TextView(ctx).apply {
             this.text = if (assistant) plain(text) else text
             textSize = 14f
@@ -561,6 +613,27 @@ class ChatTab(
         ))
         msgBox.addView(wrap)
         scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        return bubble
+    }
+
+    /** 流式过程中刷新「还没写完」的气泡。 */
+    private fun showStreaming(visible: String) {
+        val b = streamBubble ?: return
+        if (b.parent == null) return
+        b.text = if (visible.isBlank()) "…" else plain(visible)
+        scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    /** 收尾：把流式气泡定稿；没有流式气泡时按普通气泡插入。 */
+    private fun markStreaming(text: String) {
+        val b = streamBubble
+        if (b != null && b.parent != null) {
+            b.text = plain(text)
+            scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        } else {
+            addBubble(text, true)
+        }
+        streamBubble = null
     }
 
     private fun addLog(text: String) {

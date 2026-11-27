@@ -58,7 +58,44 @@ object AgentEngine {
 - {"type":"delete_course","name":"课程名"}
 - {"type":"delete_activity","title":"活动名","date":"yyyy-MM-dd"}"""
 
-    fun ask(ctx: Context, history: List<ChatMsg>, userText: String): Result {
+
+    /** 流式过程中从「半截 JSON」里尽量抠出 reply 文本，用于逐字预览。 */
+    internal fun replySoFar(buf: String): String {
+        val m = Regex("\"reply\"\\s*:\\s*\"").find(buf) ?: return ""
+        val sb = StringBuilder()
+        var i = m.range.last + 1
+        while (i < buf.length) {
+            val c = buf[i]
+            if (c == '"') break
+            if (c == '\\' && i + 1 < buf.length) {
+                when (val n = buf[i + 1]) {
+                    'n' -> sb.append('\n')
+                    't' -> sb.append('\t')
+                    'r' -> { }
+                    '"' -> sb.append('"')
+                    '\\' -> sb.append('\\')
+                    'u' -> {
+                        if (i + 5 < buf.length) {
+                            val code = buf.substring(i + 2, i + 6).toIntOrNull(16)
+                            if (code != null) { sb.append(code.toChar()); i += 4 }
+                        }
+                    }
+                    else -> sb.append(n)
+                }
+                i += 2
+            } else {
+                sb.append(c); i++
+            }
+        }
+        return sb.toString()
+    }
+
+    fun ask(
+        ctx: Context,
+        history: List<ChatMsg>,
+        userText: String,
+        onPartial: ((String) -> Unit)? = null
+    ): Result {
         val provider = SettingsStore.chatProvider(ctx)
         if (!provider.ready()) {
             return Result(
@@ -81,7 +118,14 @@ object AgentEngine {
             msgs.add(ChatMsg("user", userText))
         }
 
-        val raw = LlmClient.chat(provider, msgs, jsonMode = true, search = web)
+        val raw = if (onPartial == null) {
+            LlmClient.chat(provider, msgs, jsonMode = true, search = web)
+        } else {
+            // 流式：边收边把「reply 字段里已经写出来的部分」交给界面，像打字一样出现
+            LlmClient.chatStream(provider, msgs, jsonMode = true, search = web) { buf ->
+                onPartial(replySoFar(buf))
+            }
+        }
         return handle(ctx, raw, kbHits)
     }
 

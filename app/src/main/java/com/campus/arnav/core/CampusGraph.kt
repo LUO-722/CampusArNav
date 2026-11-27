@@ -1,6 +1,7 @@
 package com.campus.arnav.core
 
 import android.content.Context
+import java.io.File
 import org.json.JSONObject
 
 /**
@@ -72,6 +73,13 @@ object CampusGraph {
             }
             graph != null
         }
+    }
+
+    /** 清空缓存重新解析（测绘并入新路段后调用）。 */
+    @Synchronized
+    fun reload(ctx: Context): Boolean {
+        graph = null
+        return load(ctx)
     }
 
     /** 目的地清单（顺序与 assets 里的 destinations 一致，即 RouteRepository 的顺序）。 */
@@ -208,7 +216,46 @@ object CampusGraph {
             arcs.getOrPut(a.id) { ArrayList() } += Arc(b.id, meters, road)
             arcs.getOrPut(b.id) { ArrayList() } += Arc(a.id, meters, road)
         }
+        mergeSurvey(ctx, nodes, arcs)
         return Graph(nodes, dests, arcs)
+    }
+
+    /**
+     * 把「实测测绘」存下的路段并进路网（`filesDir/road_extra.json`，由 [RoadMerge] 写入）。
+     * 只加节点与边，不动目的地列表；文件不存在或解析失败都不影响内置路网。
+     */
+    private fun mergeSurvey(ctx: Context, nodes: LinkedHashMap<String, Node>, arcs: HashMap<String, MutableList<Arc>>) {
+        val f = File(ctx.applicationContext.filesDir, "road_extra.json")
+        if (!f.exists()) return
+        try {
+            val doc = JSONObject(f.readText(Charsets.UTF_8))
+            val ns = doc.optJSONArray("nodes") ?: return
+            for (i in 0 until ns.length()) {
+                val o = ns.optJSONObject(i) ?: continue
+                val id = o.optString("id", "")
+                if (id.isEmpty() || nodes.containsKey(id)) continue
+                nodes[id] = Node(
+                    id = id,
+                    name = o.optString("name", "测绘点"),
+                    lat = o.getDouble("lat"),
+                    lon = o.getDouble("lon"),
+                    kind = o.optString("kind", "survey"),
+                    building = null,
+                    aliases = emptyList()
+                )
+            }
+            val es = doc.optJSONArray("edges") ?: return
+            for (i in 0 until es.length()) {
+                val o = es.optJSONObject(i) ?: continue
+                val a = nodes[o.optString("from", "")] ?: continue
+                val b = nodes[o.optString("to", "")] ?: continue
+                val meters = GeoUtils.distanceMeters(a.lat, a.lon, b.lat, b.lon)
+                arcs.getOrPut(a.id) { ArrayList() } += Arc(b.id, meters, "实测路线")
+                arcs.getOrPut(b.id) { ArrayList() } += Arc(a.id, meters, "实测路线")
+            }
+        } catch (t: Throwable) {
+            // 坏文件忽略
+        }
     }
 
     private fun findDest(g: Graph, name: String): Node? {

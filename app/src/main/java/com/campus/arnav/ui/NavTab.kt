@@ -28,6 +28,9 @@ import com.campus.arnav.CalibrateActivity
 import com.campus.arnav.CompassTestActivity
 import com.campus.arnav.R
 import com.campus.arnav.core.CampusGraph
+import com.campus.arnav.core.CampusVector
+import com.campus.arnav.core.RoadMerge
+import com.campus.arnav.core.TrackRecorder
 import com.campus.arnav.core.CampusPath
 import com.campus.arnav.core.GeoUtils
 import com.campus.arnav.core.RouteRepository
@@ -43,7 +46,7 @@ import java.net.URLEncoder
  */
 class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
-    private val map = CampusMapView(ctx)
+    private val map = VectorMapView(ctx)
     private val routeHolder = LinearLayout(ctx)
     private val listBox = LinearLayout(ctx)
     private val query = editText(ctx, "搜楼名：明志楼、风华楼、精工楼…")
@@ -90,8 +93,8 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         }, LinearLayout.LayoutParams(ctx.dp(72), ctx.dp(34)))
         addView(head)
 
-        // 底图切换：卫星图 / 导览图
-        addView(baseChipRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        // 实测测绘：走一遍校园道路，自动记录 GPS 轨迹并并入路网
+        addView(surveyRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = ctx.dp(6)
         })
 
@@ -134,7 +137,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         addView(mapCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = ctx.dp(8)
         })
-        map.setOnBuildingTap { b -> plan(b.name) }
+        map.setOnBuildingTap { shape -> planFuzzy(shape.name) }
 
         // 比例尺说明（不出现任何外部地图服务名）
         addView(textView(ctx, "约 100 米/格 · 数据为示意图，实际以现场为准", 10f, ctx.color(R.color.text_secondary)).apply {
@@ -185,15 +188,10 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         scroll.addView(listBox)
         addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
-        if (CampusGraph.load(ctx)) {
-            map.setBuildings(RouteRepository.buildings(ctx))
-        }
-
-        // 恢复上次选择的底图（未知值一律回到卫星图）
-        val saved = mapPrefs.getString("base_kind", "campus_ortho")
-        baseKind = if (saved == "campus_guide") "campus_guide" else "campus_ortho"
-        if (baseKind != "campus_ortho") map.setBaseKind(baseKind)
-        renderBaseChips()
+        CampusGraph.load(ctx)
+        map.setVector(CampusVector.load(ctx))
+        updateExtraPaths()
+        renderSurveyState()
         updateA11y()
 
         render()
@@ -201,52 +199,70 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
     // ---------------- 底图 / 图例 / 缩放 / 无障碍 ----------------
 
-    /** 「底图」+ 卫星图 / 导览图 两枚胶囊。 */
-    private fun baseChipRow(): LinearLayout {
+    // ---------------- 实测测绘 ----------------
+
+    private val surveyStatus = textView(ctx, "未在测绘", 11f, ctx.color(R.color.text_secondary))
+
+    /** 「测绘」一行：开始/结束记录 + 轨迹数 + 并入路网。 */
+    private fun surveyRow(): LinearLayout {
         val row = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        row.addView(textView(ctx, "底图", 11f, ctx.color(R.color.text_secondary)).apply {
-            setPadding(0, 0, ctx.dp(8), 0)
+        row.addView(button(ctx, "开始测绘", ctx.color(R.color.accent), ctx.color(R.color.bg_card)).apply {
+            setOnClickListener { surveyStart() }
+        }, LinearLayout.LayoutParams(0, ctx.dp(34), 1f))
+        row.addView(button(ctx, "结束并并入", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
+            setOnClickListener { surveyStop() }
+        }, LinearLayout.LayoutParams(0, ctx.dp(34), 1f).apply { leftMargin = ctx.dp(6) })
+        row.addView(surveyStatus, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            leftMargin = ctx.dp(8)
         })
-        chipOrtho = baseChip("卫星图") { switchBase("campus_ortho") }
-        chipGuide = baseChip("导览图") { switchBase("campus_guide") }
-        row.addView(chipOrtho, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dp(32)))
-        row.addView(chipGuide, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dp(32)).apply {
-            leftMargin = ctx.dp(6)
-        })
-        renderBaseChips()
         return row
     }
 
-    private fun baseChip(label: String, onTap: () -> Unit): TextView =
-        textView(ctx, label, 12f, ctx.color(R.color.accent_ink), bold = true).apply {
-            gravity = Gravity.CENTER
-            setPadding(ctx.dp(14), 0, ctx.dp(14), 0)
-            background = rounded(ctx, ctx.color(R.color.bg_card), 14)
-            setOnClickListener { onTap() }
+    private fun surveyStart() {
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            locate()
+            return
         }
-
-    private fun renderBaseChips() {
-        if (!::chipOrtho.isInitialized || !::chipGuide.isInitialized) return
-        paintChip(chipOrtho, baseKind == "campus_ortho")
-        paintChip(chipGuide, baseKind == "campus_guide")
+        TrackRecorder.start(ctx)
+        renderSurveyState()
+        ctx.toast("测绘中：沿着路走一圈，走完点「结束并并入」")
     }
 
-    private fun paintChip(chip: TextView, selected: Boolean) {
-        chip.background = rounded(ctx, ctx.color(if (selected) R.color.accent else R.color.bg_card), 14)
-        chip.setTextColor(ctx.color(if (selected) R.color.bg_card else R.color.accent_ink))
+    private fun surveyStop() {
+        if (!TrackRecorder.isRecording()) {
+            ctx.toast("当前没有在测绘")
+            return
+        }
+        val t = TrackRecorder.stop(ctx, "测绘 " + java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA).format(java.util.Date())) ?: run { ctx.toast("没有记录到轨迹"); return }
+        val r = RoadMerge.rebuild(ctx)
+        updateExtraPaths()
+        CampusGraph.reload(ctx)
+        renderSurveyState()
+        ctx.toast("已保存轨迹 ${t.pts.size} 个点 / ${t.meters} 米；并入路网：新增 ${r.addedEdges} 段")
     }
 
-    private fun switchBase(kind: String) {
-        val next = if (kind == "campus_guide") "campus_guide" else "campus_ortho"
-        baseKind = next
-        map.setBaseKind(next)
-        mapPrefs.edit().putString("base_kind", next).apply()
-        renderBaseChips()
-        updateA11y()
-        ctx.toast(if (next == "campus_guide") "已切换到导览图" else "已切换到卫星图")
+    private fun renderSurveyState() {
+        val n = TrackRecorder.list(ctx).size
+        surveyStatus.text = if (TrackRecorder.isRecording()) "测绘中 · 已存 $n 条" else "轨迹 $n 条"
+    }
+
+    /** 把绘过的轨迹以浅色虚线画在地图上。 */
+    private fun updateExtraPaths() {
+        val paths = TrackRecorder.list(ctx).map { t -> t.pts.map { it.lat to it.lon } }
+        map.setExtraPaths(if (paths.isEmpty()) null else paths)
+    }
+
+    /** 点楼牌时把名字对齐到 RouteRepository（矢量图里的名字带全称）。 */
+    private fun planFuzzy(raw: String) {
+        val key = raw.substringBefore("（").substringBefore(" ·").trim()
+        val all = RouteRepository.buildings(ctx)
+        val hit = all.firstOrNull { it.name == raw }
+            ?: all.firstOrNull { it.name.contains(key) || key.contains(it.name) }
+            ?: all.firstOrNull { key.isNotEmpty() && (it.name.contains(key.take(2))) }
+        if (hit != null) plan(hit.name) else ctx.toast("「$raw」暂时算不了路线")
     }
 
     /** 图例：官图上的 1—15 编号。 */
@@ -273,15 +289,17 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
     /** 无障碍：地图当前底图 + 目的地 + 路线长度，随状态更新。 */
     private fun updateA11y() {
-        val kindText = if (baseKind == "campus_guide") "导览图" else "卫星图"
+        val kindText = "自绘平面图"
         val dest = destName?.let { "，已选目的地：$it" } ?: ""
         val dist = path?.let { "，路线 ${it.distanceMeters} 米" } ?: ""
         map.contentDescription = "校园地图，当前显示：$kindText$dest$dist"
     }
 
     fun refresh() {
-        if (CampusGraph.load(ctx)) map.setBuildings(RouteRepository.buildings(ctx))
-        if (destName != null && path != null) map.zoomToRoute()
+        CampusGraph.load(ctx)
+        map.setVector(CampusVector.load(ctx))
+        updateExtraPaths()
+        renderSurveyState()
         render()
     }
 
@@ -331,8 +349,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         following = false
         UserLocator.stop()
         map.setRoute(emptyList())
-        map.setDestination(null as String?)
-        map.setFollowUser(false)
+        map.setDestination(null, null, null)
         routeHolder.removeAllViews()
         routeHolder.visibility = View.GONE
         updateA11y()
@@ -354,9 +371,10 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         }
         destName = name
         path = p
-        map.setDestination(name)
+        val target = RouteRepository.buildings(ctx).firstOrNull { it.name == name }
+        if (target != null) map.setDestination(target.lat, target.lon, target.name) else map.setDestination(null, null, null)
         map.setRoute(p.points)
-        map.zoomToRoute()
+        if (target != null) map.zoomTo(target.lat, target.lon, 2.2f) else map.fitAll()
         if (fromMe && haveFix) map.setMyLocation(fixLat, fixLon, fixBearing)
         renderRoute(p, name)
         updateA11y()
@@ -365,7 +383,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     private fun startFollow() {
         val dest = destName ?: return
         following = true
-        map.setFollowUser(true)
+        map.zoomTo(fixLat, fixLon, 2.0f)
         locate()
         ctx.toast("跟随已开：蓝点会带着地图走，去 $dest")
     }

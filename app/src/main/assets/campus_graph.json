@@ -4,10 +4,10 @@
  "crs": "GCJ-02",
  "note": "坐标按官方正射图 campus_ortho.jpg 的 400 m 跑道外圈两轴定标（sx≈2.24、sy≈2.02 px/m，各向异性仿射、rotation 0）反算，GCJ-02；路网为示意格网，楼门是「楼心 20 m + 投影到最近路段」的估算支路；边长由坐标实时计算，不存 length 字段。",
  "bounds": {
-  "latMin": 34.341622,
-  "latMax": 34.348764,
-  "lonMin": 117.369571,
-  "lonMax": 117.375643
+  "latMin": 34.342373,
+  "latMax": 34.349282,
+  "lonMin": 117.36969,
+  "lonMax": 117.375484
  },
  "destinations": [
   "gate",
@@ -43,693 +43,698 @@
    "id": "gate",
    "name": "南门 · 主校门",
    "kind": "gate",
-   "lat": 34.341622,
-   "lon": 117.37276
+   "lat": 34.34255,
+   "lon": 117.374035
   },
   {
    "id": "west_gate",
    "name": "西北门",
    "kind": "gate",
-   "lat": 34.348764,
-   "lon": 117.370183
+   "lat": 34.349017,
+   "lon": 117.36969
   },
   {
    "id": "west_side_gate",
    "name": "西辅门",
    "kind": "gate",
-   "lat": 34.342957,
-   "lon": 117.369571
+   "lat": 34.343259,
+   "lon": 117.369851
   },
   {
    "id": "boxue",
    "name": "博学楼",
    "kind": "building",
-   "lat": 34.343678,
-   "lon": 117.374193,
+   "lat": 34.344809,
+   "lon": 117.375242,
    "subtitle": "东翼教学区"
   },
   {
    "id": "canteen1",
    "name": "第一食堂",
    "kind": "building",
-   "lat": 34.347795,
-   "lon": 117.37221,
+   "lat": 34.346913,
+   "lon": 117.372882,
    "subtitle": "思齐广场西侧"
   },
   {
    "id": "canteen2",
    "name": "第二食堂",
    "kind": "building",
-   "lat": 34.347491,
-   "lon": 117.373778,
+   "lat": 34.346913,
+   "lon": 117.373955,
    "subtitle": "思齐广场东侧"
   },
   {
    "id": "chongde_lou",
    "name": "崇德楼",
    "kind": "building",
-   "lat": 34.341978,
-   "lon": 117.371926,
+   "lat": 34.342816,
+   "lon": 117.371809,
    "subtitle": "南门内西侧"
   },
   {
    "id": "chongde_sy",
    "name": "崇德书院",
    "kind": "building",
-   "lat": 34.347126,
-   "lon": 117.370436,
+   "lat": 34.348928,
+   "lon": 117.370226,
    "subtitle": "西北书院区"
   },
   {
    "id": "duxing",
    "name": "笃行楼",
    "kind": "building",
-   "lat": 34.344959,
-   "lon": 117.371689,
+   "lat": 34.345916,
+   "lon": 117.372479,
    "subtitle": "西翼教学区"
   },
   {
    "id": "engineering",
    "name": "工程训练中心",
    "kind": "building",
-   "lat": 34.346421,
-   "lon": 117.370369,
+   "lat": 34.347467,
+   "lon": 117.370334,
    "subtitle": "西翼北侧"
   },
   {
    "id": "fenghua",
    "name": "风华楼",
    "kind": "building",
-   "lat": 34.34598,
-   "lon": 117.372973,
+   "lat": 34.347688,
+   "lon": 117.372345,
    "subtitle": "方湖北侧"
   },
   {
    "id": "gewu",
    "name": "格物楼",
    "kind": "building",
-   "lat": 34.344227,
-   "lon": 117.371681,
+   "lat": 34.345252,
+   "lon": 117.371675,
    "subtitle": "西翼教学区"
   },
   {
    "id": "gym",
    "name": "体育馆",
    "kind": "building",
-   "lat": 34.342125,
-   "lon": 117.370759,
+   "lat": 34.342373,
+   "lon": 117.3702,
    "subtitle": "校园西南角"
   },
   {
    "id": "hongyi",
    "name": "弘毅楼",
    "kind": "building",
-   "lat": 34.344956,
-   "lon": 117.374146,
+   "lat": 34.346138,
+   "lon": 117.374357,
    "subtitle": "东翼教学区"
   },
   {
    "id": "hospital",
    "name": "校医院",
    "kind": "building",
-   "lat": 34.348697,
-   "lon": 117.372827,
+   "lat": 34.348308,
+   "lon": 117.371112,
    "subtitle": "生活服务区"
   },
   {
    "id": "jiangxin",
    "name": "匠心楼",
    "kind": "building",
-   "lat": 34.343453,
-   "lon": 117.375273,
+   "lat": 34.344145,
+   "lon": 117.375484,
    "subtitle": "东翼教学区"
   },
   {
    "id": "jinggong",
    "name": "精工楼",
    "kind": "building",
-   "lat": 34.34472,
-   "lon": 117.375363,
+   "lat": 34.346138,
+   "lon": 117.375376,
    "subtitle": "东翼教学区"
   },
   {
    "id": "mingzhi",
    "name": "明志楼",
    "kind": "building",
-   "lat": 34.342812,
-   "lon": 117.372818,
+   "lat": 34.343281,
+   "lon": 117.373821,
    "subtitle": "中轴主楼 · 正门"
   },
   {
    "id": "mingzhi_lecture",
    "name": "明志报告厅",
    "kind": "building",
-   "lat": 34.342652,
-   "lon": 117.372505,
+   "lat": 34.343414,
+   "lon": 117.373043,
    "subtitle": "明志楼西南"
   },
   {
    "id": "qiuzhen",
    "name": "求真书院",
    "kind": "building",
-   "lat": 34.347385,
-   "lon": 117.375275,
+   "lat": 34.348441,
+   "lon": 117.372479,
    "subtitle": "东北书院区"
   },
   {
    "id": "shangmei",
    "name": "尚美书院",
    "kind": "building",
-   "lat": 34.346554,
-   "lon": 117.375643,
+   "lat": 34.348441,
+   "lon": 117.373874,
    "subtitle": "东北书院区"
   },
   {
    "id": "shop",
    "name": "商业街",
    "kind": "building",
-   "lat": 34.348284,
-   "lon": 117.372201,
+   "lat": 34.348131,
+   "lon": 117.370173,
    "subtitle": "生活服务区"
   },
   {
    "id": "track",
    "name": "田径场",
    "kind": "building",
-   "lat": 34.344293,
-   "lon": 117.370581,
+   "lat": 34.343724,
+   "lon": 117.370816,
    "subtitle": "西侧运动区"
   },
   {
    "id": "training",
    "name": "体育训练中心",
    "kind": "building",
-   "lat": 34.342447,
-   "lon": 117.370311,
+   "lat": 34.342595,
+   "lon": 117.372614,
    "subtitle": "崇德楼西侧"
   },
   {
    "id": "zhiguang",
    "name": "致广楼",
    "kind": "building",
-   "lat": 34.345115,
-   "lon": 117.371697,
+   "lat": 34.345916,
+   "lon": 117.371675,
    "subtitle": "西翼教学区"
   },
   {
    "id": "zhishan",
    "name": "至善书院",
    "kind": "building",
-   "lat": 34.348348,
-   "lon": 117.370026,
+   "lat": 34.349282,
+   "lon": 117.370977,
    "subtitle": "西北书院区"
   },
   {
    "id": "boxue_door",
-   "name": "博学楼·西南门",
+   "name": "博学楼·西门",
    "kind": "door",
-   "lat": 34.343547,
-   "lon": 117.374044,
+   "lat": 34.344809,
+   "lon": 117.375024,
    "building": "boxue"
   },
   {
    "id": "canteen1_door",
-   "name": "第一食堂·东门",
+   "name": "第一食堂·西南门",
    "kind": "door",
-   "lat": 34.347795,
-   "lon": 117.372428,
+   "lat": 34.346769,
+   "lon": 117.372751,
    "building": "canteen1"
   },
   {
    "id": "canteen2_door",
-   "name": "第二食堂·南门",
+   "name": "第二食堂·西门",
    "kind": "door",
-   "lat": 34.347311,
-   "lon": 117.373778,
+   "lat": 34.346918,
+   "lon": 117.373737,
    "building": "canteen2"
   },
   {
    "id": "chongde_lou_door",
-   "name": "崇德楼·南门",
+   "name": "崇德楼·西门",
    "kind": "door",
-   "lat": 34.341798,
-   "lon": 117.371926,
+   "lat": 34.342816,
+   "lon": 117.371591,
    "building": "chongde_lou"
   },
   {
    "id": "chongde_sy_door",
-   "name": "崇德书院·东门",
+   "name": "崇德书院·西门",
    "kind": "door",
-   "lat": 34.347126,
-   "lon": 117.370654,
+   "lat": 34.348995,
+   "lon": 117.370024,
    "building": "chongde_sy"
   },
   {
    "id": "duxing_door",
    "name": "笃行楼·西门",
    "kind": "door",
-   "lat": 34.344996,
-   "lon": 117.371476,
+   "lat": 34.3459,
+   "lon": 117.372262,
    "building": "duxing"
   },
   {
    "id": "engineering_door",
-   "name": "工程训练中心·西北门",
+   "name": "工程训练中心·南门",
    "kind": "door",
-   "lat": 34.346526,
-   "lon": 117.370192,
+   "lat": 34.347287,
+   "lon": 117.370334,
    "building": "engineering"
   },
   {
    "id": "fenghua_door",
-   "name": "风华楼·西门",
+   "name": "风华楼·东门",
    "kind": "door",
-   "lat": 34.345943,
-   "lon": 117.37276,
+   "lat": 34.347688,
+   "lon": 117.372563,
    "building": "fenghua"
   },
   {
    "id": "gewu_door",
    "name": "格物楼·西门",
    "kind": "door",
-   "lat": 34.344288,
-   "lon": 117.371476,
+   "lat": 34.345306,
+   "lon": 117.371467,
    "building": "gewu"
   },
   {
    "id": "gym_door",
-   "name": "体育馆·南门",
+   "name": "体育馆·北门",
    "kind": "door",
-   "lat": 34.341945,
-   "lon": 117.370759,
+   "lat": 34.342544,
+   "lon": 117.370133,
    "building": "gym"
   },
   {
    "id": "hongyi_door",
-   "name": "弘毅楼·东门",
+   "name": "弘毅楼·南门",
    "kind": "door",
-   "lat": 34.344956,
-   "lon": 117.374364,
+   "lat": 34.345958,
+   "lon": 117.374357,
    "building": "hongyi"
   },
   {
    "id": "hospital_door",
-   "name": "校医院·南门",
+   "name": "校医院·东门",
    "kind": "door",
-   "lat": 34.348517,
-   "lon": 117.372827,
+   "lat": 34.348308,
+   "lon": 117.37133,
    "building": "hospital"
   },
   {
    "id": "jiangxin_door",
-   "name": "匠心楼·北门",
+   "name": "匠心楼·南门",
    "kind": "door",
-   "lat": 34.343633,
-   "lon": 117.375273,
+   "lat": 34.343971,
+   "lon": 117.375426,
    "building": "jiangxin"
   },
   {
    "id": "jinggong_door",
    "name": "精工楼·南门",
    "kind": "door",
-   "lat": 34.34454,
-   "lon": 117.375356,
+   "lat": 34.34596,
+   "lon": 117.375342,
    "building": "jinggong"
   },
   {
    "id": "mingzhi_door",
-   "name": "明志楼·南门",
+   "name": "明志楼·东门",
    "kind": "door",
-   "lat": 34.342573,
-   "lon": 117.37276,
+   "lat": 34.343314,
+   "lon": 117.374035,
    "building": "mingzhi"
   },
   {
    "id": "mingzhi_lecture_door",
-   "name": "明志报告厅·西门",
+   "name": "明志报告厅·西北门",
    "kind": "door",
-   "lat": 34.342652,
-   "lon": 117.372287,
+   "lat": 34.343539,
+   "lon": 117.372887,
    "building": "mingzhi_lecture"
   },
   {
    "id": "qiuzhen_door",
    "name": "求真书院·南门",
    "kind": "door",
-   "lat": 34.347205,
-   "lon": 117.375275,
+   "lat": 34.348261,
+   "lon": 117.372479,
    "building": "qiuzhen"
   },
   {
    "id": "shangmei_door",
-   "name": "尚美书院·西南门",
+   "name": "尚美书院·东北门",
    "kind": "door",
-   "lat": 34.346392,
-   "lon": 117.375548,
+   "lat": 34.348562,
+   "lon": 117.374035,
    "building": "shangmei"
   },
   {
    "id": "shop_door",
-   "name": "商业街·东门",
+   "name": "商业街·北门",
    "kind": "door",
-   "lat": 34.348255,
-   "lon": 117.372416,
+   "lat": 34.348304,
+   "lon": 117.370112,
    "building": "shop"
   },
   {
    "id": "track_door",
    "name": "田径场·西门",
    "kind": "door",
-   "lat": 34.344293,
-   "lon": 117.370363,
+   "lat": 34.343724,
+   "lon": 117.370598,
    "building": "track"
   },
   {
    "id": "training_door",
-   "name": "体育训练中心·北门",
+   "name": "体育训练中心·东北门",
    "kind": "door",
-   "lat": 34.342627,
-   "lon": 117.370311,
+   "lat": 34.342735,
+   "lon": 117.372751,
    "building": "training"
   },
   {
    "id": "zhiguang_door",
-   "name": "致广楼·西南门",
+   "name": "致广楼·西门",
    "kind": "door",
-   "lat": 34.344982,
-   "lon": 117.37155,
+   "lat": 34.34597,
+   "lon": 117.371467,
    "building": "zhiguang"
   },
   {
    "id": "zhishan_door",
-   "name": "至善书院·东北门",
+   "name": "至善书院·东南门",
    "kind": "door",
-   "lat": 34.348468,
-   "lon": 117.370188,
+   "lat": 34.349137,
+   "lon": 117.371105,
    "building": "zhishan"
   },
   {
    "id": "g00",
    "name": "西三路与南环路路口",
    "kind": "junction",
-   "lat": 34.341622,
-   "lon": 117.370192
+   "lat": 34.34255,
+   "lon": 117.370183
   },
   {
    "id": "g01",
    "name": "西三路与中南路路口",
    "kind": "junction",
-   "lat": 34.34272,
-   "lon": 117.370192
+   "lat": 34.343648,
+   "lon": 117.370183
   },
   {
    "id": "g02",
    "name": "西三路与中路路口",
    "kind": "junction",
-   "lat": 34.343818,
-   "lon": 117.370192
+   "lat": 34.344746,
+   "lon": 117.370183
   },
   {
    "id": "g03",
    "name": "西三路与中北路路口",
    "kind": "junction",
-   "lat": 34.344915,
-   "lon": 117.370192
+   "lat": 34.345843,
+   "lon": 117.370183
   },
   {
    "id": "g04",
    "name": "西三路与北环路路口",
    "kind": "junction",
-   "lat": 34.346013,
-   "lon": 117.370192
-  },
-  {
-   "id": "g05",
-   "name": "西三路与北二路路口",
-   "kind": "junction",
-   "lat": 34.347111,
-   "lon": 117.370192
+   "lat": 34.346941,
+   "lon": 117.370183
   },
   {
    "id": "g06",
    "name": "西三路与北三路路口",
    "kind": "junction",
-   "lat": 34.348209,
-   "lon": 117.370192
+   "lat": 34.349137,
+   "lon": 117.370183
   },
   {
    "id": "g10",
    "name": "西二路与南环路路口",
    "kind": "junction",
-   "lat": 34.341622,
-   "lon": 117.371476
+   "lat": 34.34255,
+   "lon": 117.371467
   },
   {
    "id": "g11",
    "name": "西二路与中南路路口",
    "kind": "junction",
-   "lat": 34.34272,
-   "lon": 117.371476
+   "lat": 34.343648,
+   "lon": 117.371467
   },
   {
    "id": "g12",
    "name": "西二路与中路路口",
    "kind": "junction",
-   "lat": 34.343818,
-   "lon": 117.371476
+   "lat": 34.344746,
+   "lon": 117.371467
   },
   {
    "id": "g13",
    "name": "西二路与中北路路口",
    "kind": "junction",
-   "lat": 34.344915,
-   "lon": 117.371476
+   "lat": 34.345843,
+   "lon": 117.371467
   },
   {
    "id": "g14",
    "name": "西二路与北环路路口",
    "kind": "junction",
-   "lat": 34.346013,
-   "lon": 117.371476
+   "lat": 34.346941,
+   "lon": 117.371467
   },
   {
    "id": "g15",
    "name": "西二路与北二路路口",
    "kind": "junction",
-   "lat": 34.347111,
-   "lon": 117.371476
+   "lat": 34.348039,
+   "lon": 117.371467
   },
   {
    "id": "g16",
    "name": "西二路与北三路路口",
    "kind": "junction",
-   "lat": 34.348209,
-   "lon": 117.371476
+   "lat": 34.349137,
+   "lon": 117.371467
+  },
+  {
+   "id": "g20",
+   "name": "西一路与南环路路口",
+   "kind": "junction",
+   "lat": 34.34255,
+   "lon": 117.372751
   },
   {
    "id": "g21",
    "name": "西一路与中南路路口",
    "kind": "junction",
-   "lat": 34.34272,
-   "lon": 117.37276
+   "lat": 34.343648,
+   "lon": 117.372751
   },
   {
    "id": "g22",
    "name": "西一路与中路路口",
    "kind": "junction",
-   "lat": 34.343818,
-   "lon": 117.37276
+   "lat": 34.344746,
+   "lon": 117.372751
   },
   {
    "id": "g23",
    "name": "西一路与中北路路口",
    "kind": "junction",
-   "lat": 34.344915,
-   "lon": 117.37276
+   "lat": 34.345843,
+   "lon": 117.372751
   },
   {
    "id": "g24",
    "name": "西一路与北环路路口",
    "kind": "junction",
-   "lat": 34.346013,
-   "lon": 117.37276
+   "lat": 34.346941,
+   "lon": 117.372751
   },
   {
    "id": "g25",
    "name": "西一路与北二路路口",
    "kind": "junction",
-   "lat": 34.347111,
-   "lon": 117.37276
+   "lat": 34.348039,
+   "lon": 117.372751
   },
   {
    "id": "g26",
    "name": "西一路与北三路路口",
    "kind": "junction",
-   "lat": 34.348209,
-   "lon": 117.37276
-  },
-  {
-   "id": "g30",
-   "name": "中轴路与南环路路口",
-   "kind": "junction",
-   "lat": 34.341622,
-   "lon": 117.374044
+   "lat": 34.349137,
+   "lon": 117.372751
   },
   {
    "id": "g31",
    "name": "中轴路与中南路路口",
    "kind": "junction",
-   "lat": 34.34272,
-   "lon": 117.374044
+   "lat": 34.343648,
+   "lon": 117.374035
   },
   {
    "id": "g32",
    "name": "中轴路与中路路口",
    "kind": "junction",
-   "lat": 34.343818,
-   "lon": 117.374044
+   "lat": 34.344746,
+   "lon": 117.374035
   },
   {
-   "id": "g34",
-   "name": "中轴路与北环路路口",
+   "id": "g33",
+   "name": "中轴路与中北路路口",
    "kind": "junction",
-   "lat": 34.346013,
-   "lon": 117.374044
+   "lat": 34.345843,
+   "lon": 117.374035
   },
   {
    "id": "g35",
    "name": "中轴路与北二路路口",
    "kind": "junction",
-   "lat": 34.347111,
-   "lon": 117.374044
+   "lat": 34.348039,
+   "lon": 117.374035
   },
   {
    "id": "g36",
    "name": "中轴路与北三路路口",
    "kind": "junction",
-   "lat": 34.348209,
-   "lon": 117.374044
+   "lat": 34.349137,
+   "lon": 117.374035
   },
   {
    "id": "g40",
    "name": "东一路与南环路路口",
    "kind": "junction",
-   "lat": 34.341622,
-   "lon": 117.375328
+   "lat": 34.34255,
+   "lon": 117.375319
   },
   {
    "id": "g41",
    "name": "东一路与中南路路口",
    "kind": "junction",
-   "lat": 34.34272,
-   "lon": 117.375328
-  },
-  {
-   "id": "g42",
-   "name": "东一路与中路路口",
-   "kind": "junction",
-   "lat": 34.343818,
-   "lon": 117.375328
+   "lat": 34.343648,
+   "lon": 117.375319
   },
   {
    "id": "g43",
    "name": "东一路与中北路路口",
    "kind": "junction",
-   "lat": 34.344915,
-   "lon": 117.375328
+   "lat": 34.345843,
+   "lon": 117.375319
   },
   {
    "id": "g44",
    "name": "东一路与北环路路口",
    "kind": "junction",
-   "lat": 34.346013,
-   "lon": 117.375328
+   "lat": 34.346941,
+   "lon": 117.375319
   },
   {
    "id": "g45",
    "name": "东一路与北二路路口",
    "kind": "junction",
-   "lat": 34.347111,
-   "lon": 117.375328
+   "lat": 34.348039,
+   "lon": 117.375319
   },
   {
    "id": "g46",
    "name": "东一路与北三路路口",
    "kind": "junction",
-   "lat": 34.348209,
-   "lon": 117.375328
+   "lat": 34.349137,
+   "lon": 117.375319
   },
   {
    "id": "s_0",
-   "name": "西一路与北二路口",
+   "name": "西一路与北环路口",
    "kind": "junction",
-   "lat": 34.347795,
-   "lon": 117.37276
+   "lat": 34.347688,
+   "lon": 117.372751
   },
   {
    "id": "s_1",
-   "name": "西一路与北二路口",
+   "name": "西北门口",
    "kind": "junction",
-   "lat": 34.347111,
-   "lon": 117.373778
+   "lat": 34.349055,
+   "lon": 117.369845
   },
   {
-   "id": "s_5",
-   "name": "西二路与南环路口",
+   "id": "s_2",
+   "name": "西二路与北二路口",
    "kind": "junction",
-   "lat": 34.341622,
-   "lon": 117.371926
+   "lat": 34.348308,
+   "lon": 117.371467
+  },
+  {
+   "id": "s_3",
+   "name": "西二路与北二路口",
+   "kind": "junction",
+   "lat": 34.348039,
+   "lon": 117.372479
+  },
+  {
+   "id": "s_4",
+   "name": "中轴路与中北路口",
+   "kind": "junction",
+   "lat": 34.345843,
+   "lon": 117.374357
   },
   {
    "id": "s_6",
-   "name": "西三路与南环路口",
+   "name": "西二路与南环路口",
    "kind": "junction",
-   "lat": 34.341622,
-   "lon": 117.370759
-  },
-  {
-   "id": "s_7",
-   "name": "西三路与中路口",
-   "kind": "junction",
-   "lat": 34.344293,
-   "lon": 117.370192
+   "lat": 34.342816,
+   "lon": 117.371467
   },
   {
    "id": "s_8",
-   "name": "西三路与中南路口",
+   "name": "西三路与北环路口",
    "kind": "junction",
-   "lat": 34.34272,
-   "lon": 117.370311
+   "lat": 34.346941,
+   "lon": 117.370334
   },
   {
    "id": "fanghu",
    "name": "方湖",
    "kind": "landmark",
-   "lat": 63.856268,
-   "lon": 117.429553,
+   "lat": 12.014692,
+   "lon": 126.960831,
    "subtitle": "校园水面"
   },
   {
    "id": "star_lake",
    "name": "星垂湖",
    "kind": "landmark",
-   "lat": 63.852841,
-   "lon": 117.429494,
+   "lat": 12.011156,
+   "lon": 126.960763,
    "subtitle": "校园水面"
   }
  ],
  "edges": [
   {
-   "from": "g01",
-   "to": "g02",
+   "from": "g00",
+   "to": "g10",
    "kind": "walk",
-   "road": "中南路"
+   "road": "西三路"
+  },
+  {
+   "from": "g00",
+   "to": "g01",
+   "kind": "walk",
+   "road": "南环路"
   },
   {
    "from": "g02",
    "to": "g12",
    "kind": "walk",
    "road": "西三路"
+  },
+  {
+   "from": "g02",
+   "to": "g03",
+   "kind": "walk",
+   "road": "中路"
   },
   {
    "from": "g03",
@@ -744,22 +749,10 @@
    "road": "中北路"
   },
   {
-   "from": "g04",
-   "to": "g14",
+   "from": "g11",
+   "to": "g21",
    "kind": "walk",
-   "road": "西三路"
-  },
-  {
-   "from": "g05",
-   "to": "g06",
-   "kind": "walk",
-   "road": "北二路"
-  },
-  {
-   "from": "g06",
-   "to": "g16",
-   "kind": "walk",
-   "road": "西三路"
+   "road": "西二路"
   },
   {
    "from": "g11",
@@ -786,22 +779,28 @@
    "road": "北环路"
   },
   {
-   "from": "g15",
-   "to": "g25",
+   "from": "g16",
+   "to": "g26",
    "kind": "walk",
    "road": "西二路"
   },
   {
-   "from": "g15",
-   "to": "g16",
-   "kind": "walk",
-   "road": "北二路"
-  },
-  {
-   "from": "gate",
-   "to": "g30",
+   "from": "g20",
+   "to": "gate",
    "kind": "walk",
    "road": "西一路"
+  },
+  {
+   "from": "g21",
+   "to": "g31",
+   "kind": "walk",
+   "road": "西一路"
+  },
+  {
+   "from": "g21",
+   "to": "g22",
+   "kind": "walk",
+   "road": "中南路"
   },
   {
    "from": "g22",
@@ -816,22 +815,34 @@
    "road": "中路"
   },
   {
-   "from": "g24",
-   "to": "g25",
+   "from": "g23",
+   "to": "g33",
    "kind": "walk",
-   "road": "北环路"
+   "road": "西一路"
   },
   {
-   "from": "g30",
+   "from": "g25",
+   "to": "g35",
+   "kind": "walk",
+   "road": "西一路"
+  },
+  {
+   "from": "g25",
+   "to": "g26",
+   "kind": "walk",
+   "road": "北二路"
+  },
+  {
+   "from": "g26",
+   "to": "g36",
+   "kind": "walk",
+   "road": "西一路"
+  },
+  {
+   "from": "gate",
    "to": "g40",
    "kind": "walk",
    "road": "中轴路"
-  },
-  {
-   "from": "g30",
-   "to": "g31",
-   "kind": "walk",
-   "road": "南环路"
   },
   {
    "from": "g31",
@@ -840,28 +851,16 @@
    "road": "中轴路"
   },
   {
-   "from": "g34",
-   "to": "g44",
+   "from": "g31",
+   "to": "g32",
    "kind": "walk",
-   "road": "中轴路"
-  },
-  {
-   "from": "g34",
-   "to": "g35",
-   "kind": "walk",
-   "road": "北环路"
+   "road": "中南路"
   },
   {
    "from": "g35",
    "to": "g45",
    "kind": "walk",
    "road": "中轴路"
-  },
-  {
-   "from": "g35",
-   "to": "g36",
-   "kind": "walk",
-   "road": "北二路"
   },
   {
    "from": "g36",
@@ -876,20 +875,26 @@
    "road": "南环路"
   },
   {
-   "from": "g43",
-   "to": "g44",
-   "kind": "walk",
-   "road": "中北路"
-  },
-  {
    "from": "g44",
    "to": "g45",
    "kind": "walk",
    "road": "北环路"
   },
   {
+   "from": "g45",
+   "to": "g46",
+   "kind": "walk",
+   "road": "北二路"
+  },
+  {
    "from": "west_side_gate",
    "to": "g01",
+   "kind": "walk",
+   "road": "校园步道"
+  },
+  {
+   "from": "west_side_gate",
+   "to": "g00",
    "kind": "walk",
    "road": "校园步道"
   },
@@ -901,7 +906,7 @@
   },
   {
    "from": "mingzhi_door",
-   "to": "g21",
+   "to": "g31",
    "kind": "walk",
    "road": "南环路"
   },
@@ -912,16 +917,16 @@
    "road": "楼前步道"
   },
   {
-   "from": "g23",
-   "to": "fenghua_door",
+   "from": "g24",
+   "to": "s_0",
    "kind": "walk",
-   "road": "中北路"
+   "road": "北环路"
   },
   {
-   "from": "fenghua_door",
-   "to": "g24",
+   "from": "s_0",
+   "to": "g25",
    "kind": "walk",
-   "road": "中北路"
+   "road": "北环路"
   },
   {
    "from": "fenghua",
@@ -930,40 +935,28 @@
    "road": "楼前步道"
   },
   {
-   "from": "g25",
+   "from": "fenghua_door",
    "to": "s_0",
-   "kind": "walk",
-   "road": "北二路"
+   "kind": "corridor",
+   "road": "楼前步道"
   },
   {
-   "from": "s_0",
-   "to": "g26",
+   "from": "g23",
+   "to": "canteen1_door",
    "kind": "walk",
-   "road": "北二路"
+   "road": "中北路"
+  },
+  {
+   "from": "canteen1_door",
+   "to": "g24",
+   "kind": "walk",
+   "road": "中北路"
   },
   {
    "from": "canteen1",
    "to": "canteen1_door",
    "kind": "corridor",
    "road": "楼前步道"
-  },
-  {
-   "from": "canteen1_door",
-   "to": "s_0",
-   "kind": "corridor",
-   "road": "楼前步道"
-  },
-  {
-   "from": "g25",
-   "to": "s_1",
-   "kind": "walk",
-   "road": "西一路"
-  },
-  {
-   "from": "s_1",
-   "to": "g35",
-   "kind": "walk",
-   "road": "西一路"
   },
   {
    "from": "canteen2",
@@ -973,9 +966,21 @@
   },
   {
    "from": "canteen2_door",
-   "to": "s_1",
+   "to": "g24",
    "kind": "corridor",
    "road": "楼前步道"
+  },
+  {
+   "from": "west_gate",
+   "to": "s_1",
+   "kind": "walk",
+   "road": "校园步道"
+  },
+  {
+   "from": "s_1",
+   "to": "g06",
+   "kind": "walk",
+   "road": "校园步道"
   },
   {
    "from": "shop",
@@ -985,15 +990,21 @@
   },
   {
    "from": "shop_door",
-   "to": "g26",
+   "to": "s_1",
    "kind": "corridor",
    "road": "楼前步道"
   },
   {
-   "from": "g26",
-   "to": "g36",
+   "from": "g15",
+   "to": "s_2",
    "kind": "walk",
-   "road": "西一路"
+   "road": "北二路"
+  },
+  {
+   "from": "s_2",
+   "to": "g16",
+   "kind": "walk",
+   "road": "北二路"
   },
   {
    "from": "hospital",
@@ -1003,21 +1014,21 @@
   },
   {
    "from": "hospital_door",
-   "to": "g26",
+   "to": "s_2",
    "kind": "corridor",
    "road": "楼前步道"
   },
   {
-   "from": "west_gate",
+   "from": "g06",
    "to": "zhishan_door",
    "kind": "walk",
-   "road": "校园步道"
+   "road": "西三路"
   },
   {
    "from": "zhishan_door",
-   "to": "g06",
+   "to": "g16",
    "kind": "walk",
-   "road": "校园步道"
+   "road": "西三路"
   },
   {
    "from": "zhishan",
@@ -1033,9 +1044,21 @@
   },
   {
    "from": "chongde_sy_door",
-   "to": "g15",
+   "to": "s_1",
    "kind": "corridor",
    "road": "楼前步道"
+  },
+  {
+   "from": "g15",
+   "to": "s_3",
+   "kind": "walk",
+   "road": "西二路"
+  },
+  {
+   "from": "s_3",
+   "to": "g25",
+   "kind": "walk",
+   "road": "西二路"
   },
   {
    "from": "qiuzhen",
@@ -1045,9 +1068,21 @@
   },
   {
    "from": "qiuzhen_door",
-   "to": "g45",
+   "to": "s_3",
    "kind": "corridor",
    "road": "楼前步道"
+  },
+  {
+   "from": "g35",
+   "to": "shangmei_door",
+   "kind": "walk",
+   "road": "北二路"
+  },
+  {
+   "from": "shangmei_door",
+   "to": "g36",
+   "kind": "walk",
+   "road": "北二路"
   },
   {
    "from": "shangmei",
@@ -1056,10 +1091,16 @@
    "road": "楼前步道"
   },
   {
-   "from": "shangmei_door",
-   "to": "g44",
-   "kind": "corridor",
-   "road": "楼前步道"
+   "from": "g33",
+   "to": "s_4",
+   "kind": "walk",
+   "road": "中轴路"
+  },
+  {
+   "from": "s_4",
+   "to": "g43",
+   "kind": "walk",
+   "road": "中轴路"
   },
   {
    "from": "hongyi",
@@ -1069,7 +1110,7 @@
   },
   {
    "from": "hongyi_door",
-   "to": "g43",
+   "to": "s_4",
    "kind": "corridor",
    "road": "楼前步道"
   },
@@ -1081,21 +1122,15 @@
   },
   {
    "from": "jinggong_door",
-   "to": "g42",
+   "to": "g43",
    "kind": "corridor",
    "road": "楼前步道"
   },
   {
-   "from": "g31",
-   "to": "boxue_door",
+   "from": "g32",
+   "to": "g33",
    "kind": "walk",
-   "road": "中南路"
-  },
-  {
-   "from": "boxue_door",
-   "to": "g32",
-   "kind": "walk",
-   "road": "中南路"
+   "road": "中路"
   },
   {
    "from": "boxue",
@@ -1104,10 +1139,10 @@
    "road": "楼前步道"
   },
   {
-   "from": "g32",
-   "to": "g42",
-   "kind": "walk",
-   "road": "中轴路"
+   "from": "boxue_door",
+   "to": "g32",
+   "kind": "corridor",
+   "road": "楼前步道"
   },
   {
    "from": "jiangxin",
@@ -1117,19 +1152,25 @@
   },
   {
    "from": "jiangxin_door",
-   "to": "g42",
+   "to": "g41",
    "kind": "corridor",
    "road": "楼前步道"
+  },
+  {
+   "from": "g13",
+   "to": "zhiguang_door",
+   "kind": "walk",
+   "road": "中北路"
+  },
+  {
+   "from": "zhiguang_door",
+   "to": "g14",
+   "kind": "walk",
+   "road": "中北路"
   },
   {
    "from": "zhiguang",
    "to": "zhiguang_door",
-   "kind": "corridor",
-   "road": "楼前步道"
-  },
-  {
-   "from": "zhiguang_door",
-   "to": "g13",
    "kind": "corridor",
    "road": "楼前步道"
   },
@@ -1152,28 +1193,16 @@
    "road": "楼前步道"
   },
   {
-   "from": "g13",
-   "to": "duxing_door",
-   "kind": "walk",
-   "road": "中北路"
-  },
-  {
-   "from": "duxing_door",
-   "to": "g14",
-   "kind": "walk",
-   "road": "中北路"
-  },
-  {
    "from": "duxing",
    "to": "duxing_door",
    "kind": "corridor",
    "road": "楼前步道"
   },
   {
-   "from": "g10",
-   "to": "g11",
-   "kind": "walk",
-   "road": "南环路"
+   "from": "duxing_door",
+   "to": "g13",
+   "kind": "corridor",
+   "road": "楼前步道"
   },
   {
    "from": "mingzhi_lecture",
@@ -1183,21 +1212,21 @@
   },
   {
    "from": "mingzhi_lecture_door",
-   "to": "g11",
+   "to": "g21",
    "kind": "corridor",
    "road": "楼前步道"
   },
   {
    "from": "g10",
-   "to": "s_5",
+   "to": "s_6",
    "kind": "walk",
-   "road": "西二路"
+   "road": "南环路"
   },
   {
-   "from": "s_5",
-   "to": "gate",
+   "from": "s_6",
+   "to": "g11",
    "kind": "walk",
-   "road": "西二路"
+   "road": "南环路"
   },
   {
    "from": "chongde_lou",
@@ -1207,21 +1236,9 @@
   },
   {
    "from": "chongde_lou_door",
-   "to": "s_5",
+   "to": "s_6",
    "kind": "corridor",
    "road": "楼前步道"
-  },
-  {
-   "from": "g00",
-   "to": "s_6",
-   "kind": "walk",
-   "road": "西三路"
-  },
-  {
-   "from": "s_6",
-   "to": "g10",
-   "kind": "walk",
-   "road": "西三路"
   },
   {
    "from": "gym",
@@ -1231,21 +1248,15 @@
   },
   {
    "from": "gym_door",
-   "to": "s_6",
+   "to": "west_side_gate",
    "kind": "corridor",
    "road": "楼前步道"
   },
   {
-   "from": "g02",
-   "to": "s_7",
+   "from": "g01",
+   "to": "g02",
    "kind": "walk",
-   "road": "中路"
-  },
-  {
-   "from": "s_7",
-   "to": "g03",
-   "kind": "walk",
-   "road": "中路"
+   "road": "中南路"
   },
   {
    "from": "track",
@@ -1255,21 +1266,21 @@
   },
   {
    "from": "track_door",
-   "to": "s_7",
+   "to": "g01",
    "kind": "corridor",
    "road": "楼前步道"
   },
   {
-   "from": "g01",
-   "to": "s_8",
+   "from": "g20",
+   "to": "training_door",
    "kind": "walk",
-   "road": "西三路"
+   "road": "南环路"
   },
   {
-   "from": "s_8",
-   "to": "g11",
+   "from": "training_door",
+   "to": "g21",
    "kind": "walk",
-   "road": "西三路"
+   "road": "南环路"
   },
   {
    "from": "training",
@@ -1278,26 +1289,26 @@
    "road": "楼前步道"
   },
   {
-   "from": "training_door",
-   "to": "s_8",
-   "kind": "corridor",
-   "road": "楼前步道"
-  },
-  {
    "from": "g04",
-   "to": "engineering_door",
+   "to": "s_8",
    "kind": "walk",
-   "road": "北环路"
+   "road": "西三路"
   },
   {
-   "from": "engineering_door",
-   "to": "g05",
+   "from": "s_8",
+   "to": "g14",
    "kind": "walk",
-   "road": "北环路"
+   "road": "西三路"
   },
   {
    "from": "engineering",
    "to": "engineering_door",
+   "kind": "corridor",
+   "road": "楼前步道"
+  },
+  {
+   "from": "engineering_door",
+   "to": "s_8",
    "kind": "corridor",
    "road": "楼前步道"
   },
@@ -1309,19 +1320,25 @@
   },
   {
    "from": "mingzhi_door",
+   "to": "jiangxin_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "mingzhi_door",
    "to": "mingzhi_lecture_door",
    "kind": "walk",
    "road": "楼间步道"
   },
   {
    "from": "mingzhi_door",
-   "to": "chongde_lou_door",
+   "to": "training_door",
    "kind": "walk",
    "road": "楼间步道"
   },
   {
-   "from": "mingzhi_door",
-   "to": "gym_door",
+   "from": "fenghua_door",
+   "to": "canteen1_door",
    "kind": "walk",
    "road": "楼间步道"
   },
@@ -1333,49 +1350,49 @@
   },
   {
    "from": "fenghua_door",
-   "to": "hongyi_door",
+   "to": "hospital_door",
    "kind": "walk",
    "road": "楼间步道"
   },
   {
    "from": "fenghua_door",
+   "to": "qiuzhen_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "fenghua_door",
+   "to": "shangmei_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "canteen1_door",
+   "to": "canteen2_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "canteen1_door",
+   "to": "qiuzhen_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "canteen1_door",
+   "to": "hongyi_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "canteen1_door",
    "to": "zhiguang_door",
    "kind": "walk",
    "road": "楼间步道"
   },
   {
    "from": "canteen1_door",
-   "to": "canteen2_door",
-   "kind": "walk",
-   "road": "楼间步道"
-  },
-  {
-   "from": "canteen1_door",
-   "to": "shop_door",
-   "kind": "walk",
-   "road": "楼间步道"
-  },
-  {
-   "from": "canteen1_door",
-   "to": "hospital_door",
-   "kind": "walk",
-   "road": "楼间步道"
-  },
-  {
-   "from": "canteen1_door",
-   "to": "chongde_sy_door",
-   "kind": "walk",
-   "road": "楼间步道"
-  },
-  {
-   "from": "canteen2_door",
-   "to": "shop_door",
-   "kind": "walk",
-   "road": "楼间步道"
-  },
-  {
-   "from": "canteen2_door",
-   "to": "hospital_door",
+   "to": "duxing_door",
    "kind": "walk",
    "road": "楼间步道"
   },
@@ -1392,8 +1409,68 @@
    "road": "楼间步道"
   },
   {
+   "from": "canteen2_door",
+   "to": "hongyi_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "canteen2_door",
+   "to": "jinggong_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "canteen2_door",
+   "to": "duxing_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
    "from": "shop_door",
    "to": "hospital_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "shop_door",
+   "to": "zhishan_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "shop_door",
+   "to": "chongde_sy_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "shop_door",
+   "to": "engineering_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "hospital_door",
+   "to": "zhishan_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "hospital_door",
+   "to": "chongde_sy_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "hospital_door",
+   "to": "qiuzhen_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "hospital_door",
+   "to": "engineering_door",
    "kind": "walk",
    "road": "楼间步道"
   },
@@ -1404,20 +1481,14 @@
    "road": "楼间步道"
   },
   {
-   "from": "chongde_sy_door",
-   "to": "engineering_door",
+   "from": "zhishan_door",
+   "to": "qiuzhen_door",
    "kind": "walk",
    "road": "楼间步道"
   },
   {
    "from": "qiuzhen_door",
    "to": "shangmei_door",
-   "kind": "walk",
-   "road": "楼间步道"
-  },
-  {
-   "from": "shangmei_door",
-   "to": "hongyi_door",
    "kind": "walk",
    "road": "楼间步道"
   },
@@ -1435,7 +1506,7 @@
   },
   {
    "from": "hongyi_door",
-   "to": "jiangxin_door",
+   "to": "duxing_door",
    "kind": "walk",
    "road": "楼间步道"
   },
@@ -1446,20 +1517,8 @@
    "road": "楼间步道"
   },
   {
-   "from": "jinggong_door",
-   "to": "jiangxin_door",
-   "kind": "walk",
-   "road": "楼间步道"
-  },
-  {
    "from": "boxue_door",
    "to": "jiangxin_door",
-   "kind": "walk",
-   "road": "楼间步道"
-  },
-  {
-   "from": "boxue_door",
-   "to": "mingzhi_lecture_door",
    "kind": "walk",
    "road": "楼间步道"
   },
@@ -1471,7 +1530,13 @@
   },
   {
    "from": "zhiguang_door",
-   "to": "track_door",
+   "to": "duxing_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "zhiguang_door",
+   "to": "engineering_door",
    "kind": "walk",
    "road": "楼间步道"
   },
@@ -1483,18 +1548,6 @@
   },
   {
    "from": "gewu_door",
-   "to": "mingzhi_lecture_door",
-   "kind": "walk",
-   "road": "楼间步道"
-  },
-  {
-   "from": "gewu_door",
-   "to": "track_door",
-   "kind": "walk",
-   "road": "楼间步道"
-  },
-  {
-   "from": "duxing_door",
    "to": "track_door",
    "kind": "walk",
    "road": "楼间步道"
@@ -1507,12 +1560,6 @@
   },
   {
    "from": "mingzhi_lecture_door",
-   "to": "gym_door",
-   "kind": "walk",
-   "road": "楼间步道"
-  },
-  {
-   "from": "mingzhi_lecture_door",
    "to": "training_door",
    "kind": "walk",
    "road": "楼间步道"
@@ -1520,6 +1567,12 @@
   {
    "from": "chongde_lou_door",
    "to": "gym_door",
+   "kind": "walk",
+   "road": "楼间步道"
+  },
+  {
+   "from": "chongde_lou_door",
+   "to": "track_door",
    "kind": "walk",
    "road": "楼间步道"
   },
@@ -1531,13 +1584,7 @@
   },
   {
    "from": "gym_door",
-   "to": "training_door",
-   "kind": "walk",
-   "road": "楼间步道"
-  },
-  {
-   "from": "track_door",
-   "to": "training_door",
+   "to": "track_door",
    "kind": "walk",
    "road": "楼间步道"
   },
@@ -1549,13 +1596,25 @@
   },
   {
    "from": "gate",
-   "to": "chongde_lou_door",
+   "to": "training_door",
    "kind": "walk",
    "road": "校园步道"
   },
   {
-   "from": "gate",
-   "to": "gym_door",
+   "from": "west_gate",
+   "to": "shop_door",
+   "kind": "walk",
+   "road": "校园步道"
+  },
+  {
+   "from": "west_gate",
+   "to": "hospital_door",
+   "kind": "walk",
+   "road": "校园步道"
+  },
+  {
+   "from": "west_gate",
+   "to": "zhishan_door",
    "kind": "walk",
    "road": "校园步道"
   },
@@ -1567,13 +1626,13 @@
   },
   {
    "from": "west_side_gate",
-   "to": "track_door",
+   "to": "chongde_lou_door",
    "kind": "walk",
    "road": "校园步道"
   },
   {
    "from": "west_side_gate",
-   "to": "training_door",
+   "to": "track_door",
    "kind": "walk",
    "road": "校园步道"
   }

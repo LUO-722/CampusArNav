@@ -11,8 +11,8 @@ android {
         applicationId "com.campus.arnav"
         minSdk 24
         targetSdk 36
-        versionCode 44
-        versionName "0.17.2"
+        versionCode 45
+        versionName "0.18.0"
 
         // 内置云端通道（阿里云百炼 / DashScope OpenAI 兼容）。
         // Key 只从本机 local.properties 读取，编译进包，界面上不出现任何接口/Key 配置。

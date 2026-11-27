@@ -93,7 +93,8 @@ class AppDb private constructor(ctx: Context) :
             createJwTables(db)
         }
         // v2 → v3：聊天消息按会话拆分（历史消息全部归入 legacy 会话）
-        if (oldVersion < 3) migrateChatV3(db)
+        // 迁移失败不能让用户闪退：吞掉异常，后面 ChatStore 会再调 repairChats 兜一次
+        if (oldVersion < 3) runCatching { migrateChatV3(db) }
     }
 
     companion object {
@@ -116,6 +117,29 @@ class AppDb private constructor(ctx: Context) :
                 )"""
             )
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_chat_sid ON chats(sid)")
+        }
+
+        /** 聊天表结构修复：老库缺表、缺 sid 列、缺索引时补齐（幂等，失败也不抛）。 */
+        fun repairChats(ctx: Context) {
+            runCatching {
+                val db = get(ctx).writableDatabase
+                runCatching { db.execSQL("ALTER TABLE chats ADD COLUMN sid TEXT") }
+                runCatching {
+                    db.execSQL(
+                        """CREATE TABLE IF NOT EXISTS chats(
+                            _id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            role TEXT NOT NULL,
+                            content TEXT NOT NULL,
+                            ts INTEGER NOT NULL,
+                            sid TEXT DEFAULT ''
+                        )"""
+                    )
+                }
+                createChatSchema(db)
+                runCatching {
+                    db.execSQL("UPDATE chats SET sid='legacy' WHERE sid IS NULL OR sid=''")
+                }
+            }
         }
 
         /**

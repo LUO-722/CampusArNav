@@ -49,6 +49,9 @@ class MainShellActivity : AppCompatActivity() {
 
     private var current = 0
 
+    /** 页面构造失败时记下来，切页时显示成可读的错误页，而不是闪退。 */
+    private var tabBuildError: Throwable? = null
+
     /** 登录态快照 "loggedIn|lastSyncAt"：从登录页回来时只在这两者变了才刷新，避免打断滚动。 */
     private var loginStamp: String? = null
 
@@ -74,8 +77,9 @@ class MainShellActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         insLightBars()
         Log.i("MainShell", "onCreate saved=" + (savedInstanceState != null) + " tabArg=" + (savedInstanceState?.getInt("tab", -1) ?: -1))
-        SettingsStore.applySemester(this)
-        CourseStore.seedDemoIfEmpty(this)
+        // 数据库/偏好设置读取也可能因为老库结构异常抛错，同样不能让它把 App 带崩
+        runCatching { SettingsStore.applySemester(this); CourseStore.seedDemoIfEmpty(this) }
+            .onFailure { Log.e("MainShell", "prepare data failed", it) }
         loginStamp = loginStampNow()
 
         val root = LinearLayout(this).apply {
@@ -105,6 +109,10 @@ class MainShellActivity : AppCompatActivity() {
         }
         root.addView(navBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(62)))
 
+        // 页面构造统一兜底：任一页面初始化失败（例如老数据库结构不对）不能让整个 App 闪退，
+        // 改为在内容区显示可读的错误信息，用户截个图就能定位。
+        var buildError: Throwable? = null
+        runCatching {
         timetable = TimetableTab(this)
         zhijia = ZhijiaTab(this, onSaved = { timetable.refresh() }, onPickImage = {
             val i = Intent(Intent.ACTION_GET_CONTENT).apply { type = "image/*" }
@@ -124,6 +132,8 @@ class MainShellActivity : AppCompatActivity() {
             onOpenSettings = { openSettings() },
             onOpenTimetable = { switchTab(0) }
         )
+        }.onFailure { buildError = it; Log.e("MainShell", "buildTabs failed", it) }
+        tabBuildError = buildError
 
         val labels = listOf(
             "课程表" to "▦",
@@ -204,12 +214,17 @@ class MainShellActivity : AppCompatActivity() {
         Log.i("MainShell", "switchTab " + i + " (was " + current + ")")
         current = i
         content.removeAllViews()
-        val view: View = when (i) {
-            0 -> { timetable.refresh(); timetable }
-            1 -> zhijia
-            2 -> { nav.refresh(); nav }
-            3 -> { chat.refreshProvider(); chat }
-            else -> { profile.refresh(); profile }
+        val view: View = try {
+            when (i) {
+                0 -> { timetable.refresh(); timetable }
+                1 -> zhijia
+                2 -> { nav.refresh(); nav }
+                3 -> { chat.refreshProvider(); chat }
+                else -> { profile.refresh(); profile }
+            }
+        } catch (e: Throwable) {
+            Log.e("MainShell", "switchTab " + i + " failed", e)
+            errorView(tabBuildError ?: e)
         }
         val shown: View = if (i == 0 || i == 1 || i == 4) {
             // 页面在切换时会被临时包一层 ScrollView；再次进入前先从旧父容器摘除，避免 child already has a parent
@@ -226,6 +241,28 @@ class MainShellActivity : AppCompatActivity() {
             tv.setTextColor(if (on) color(R.color.accent_ink) else color(R.color.text_secondary))
             tv.background = if (on) rounded(this, Color.parseColor("#FFE3EE"), 12) else null
         }
+    }
+
+    /** 出错时替代页面内容：标题 + 异常信息 + 前几行堆栈（用户可直接截图反馈）。 */
+    private fun errorView(e: Throwable): View {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(24), dp(18), dp(24))
+        }
+        box.addView(textView(this@MainShellActivity, "这一页没能加载出来", 18f, color(R.color.text_primary), bold = true))
+        box.addView(textView(this@MainShellActivity, e.toString().take(400), 12f, color(R.color.accent_ink)).apply {
+            setPadding(0, dp(10), 0, 0)
+        })
+        val trace = e.stackTraceToString().lineSequence().take(8).joinToString("\n")
+        box.addView(textView(this@MainShellActivity, trace, 10f, color(R.color.text_secondary)).apply {
+            setPadding(0, dp(8), 0, 0)
+        })
+        box.addView(textView(
+            this@MainShellActivity,
+            "其它页面还能用；把这张截图发给开发即可定位。",
+            12f, color(R.color.text_secondary)
+        ).apply { setPadding(0, dp(12), 0, 0) })
+        return ScrollView(this).apply { addView(box) }
     }
 
     private fun openSettings() {

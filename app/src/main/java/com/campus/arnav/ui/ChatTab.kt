@@ -527,7 +527,7 @@ class ChatTab(
                         val now = System.currentTimeMillis()
                         if (now - lastRefresh >= 40L) {
                             lastRefresh = now
-                            post { if (!cancelFlag) showStreaming(visible) }
+                            post { if (!cancelFlag && (visible.isEmpty() || com.campus.arnav.agent.AnswerRules.looksLikeAnswer(visible))) showStreaming(visible) }
                         }
                     }
                     if (cancelFlag) return@Thread

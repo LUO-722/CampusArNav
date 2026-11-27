@@ -1,5 +1,7 @@
 package com.campus.arnav.agent
 
+import android.util.Log
+
 import android.content.Context
 import com.campus.arnav.data.ChatMsg
 import com.campus.arnav.data.CourseStore
@@ -16,6 +18,8 @@ import java.util.Locale
  * 聊天 Agent：知识库检索 + 模型决策 + 动作执行。
  * 模型按约定返回 {"reply": "...", "actions": [...]}；动作由 [ActionExecutor] 执行。
  */
+private const val TAG_AI = "ZhijiaAI"
+
 object AgentEngine {
 
     data class Result(
@@ -118,6 +122,7 @@ object AgentEngine {
             msgs.add(ChatMsg("user", userText))
         }
 
+        Log.i(TAG_AI, "ASK q=" + userText + " kb=" + kbHits.size + " web=" + web)
         val raw = if (onPartial == null) {
             LlmClient.chat(provider, msgs, jsonMode = true, search = web)
         } else {
@@ -125,6 +130,16 @@ object AgentEngine {
             LlmClient.chatStream(provider, msgs, jsonMode = true, search = web) { buf ->
                 onPartial(replySoFar(buf))
             }
+        }
+        Log.i(TAG_AI, "RAW len=" + raw.length + " :" + raw.take(400))
+        // 偶发故障兜底：模型这次没吐出可读回答（纯数字/空/乱码）→ 非流式再请求一次
+        val firstReply = parse(raw)?.optString("reply") ?: ""
+        val retry = if (AnswerRules.looksLikeAnswer(firstReply)) raw else runCatching {
+            LlmClient.chat(provider, msgs, jsonMode = true, search = web)
+        }.getOrNull()
+        if (retry != null && retry !== raw) {
+            Log.i(TAG_AI, "RETRY len=" + retry.length + " :" + retry.take(300))
+            return handle(ctx, retry, kbHits)
         }
         return handle(ctx, raw, kbHits)
     }
@@ -230,11 +245,22 @@ object AgentEngine {
                     actionLogs.add(oc.message)
                 }
             }
-            val reply = AnswerRules.postProcess(parsed.optString("reply").ifBlank { "已处理。" })
+            val rawReply = parsed.optString("reply")
+            val reply = if (AnswerRules.looksLikeAnswer(rawReply)) {
+                AnswerRules.postProcess(rawReply.ifBlank { "已处理。" })
+            } else {
+                // 模型偶尔把 reply 写成数字/乱码（JSON 模式下的偶发故障），不能原样给用户看
+                "这次没生成出可读的回答，再问一次试试；如果一直这样，换一句更具体的问法（例如「明天第 1-2 节有课吗」）。"
+            }
             return Result(honestReply(reply, outcomes), actionLogs, kbHits.map { it.title }, pending)
         }
         // 模型没按 JSON 返回时，退化为纯文本回答
-        return Result(AnswerRules.postProcess(cleanText(raw)), emptyList(), kbHits.map { it.title })
+        val fallback = cleanText(raw)
+        return Result(
+            if (AnswerRules.looksLikeAnswer(fallback)) AnswerRules.postProcess(fallback)
+            else "这次没生成出可读的回答，再问一次试试。",
+            emptyList(), kbHits.map { it.title }
+        )
     }
 
     /**

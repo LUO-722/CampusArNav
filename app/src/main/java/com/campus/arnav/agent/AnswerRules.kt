@@ -37,6 +37,20 @@ object AnswerRules {
     )
 
     /**
+     * 回答有效性闸门：模型偶发把 reply 写成纯数字/乱码（JSON 模式下见过
+     * 「20261205134748.918848」这种），这类内容一律不给用户看。
+     */
+    fun looksLikeAnswer(text: String): Boolean {
+        val t = text.trim()
+        if (t.length < 2) return false
+        val cjk = t.count { it.code in 0x4E00..0x9FFF }
+        if (cjk >= 2) return true
+        // 用户用英文提问时模型可能用英文答，英文句子同样算有效回答
+        val latin = t.count { it.isLetter() && it.code < 128 }
+        return latin >= 8
+    }
+
+    /**
      * 客户端兜底：即使模型没守规则，也别把 Markdown、客套话、超长文本原样丢给用户。
      * 只做低风险清理，不改语义。
      */

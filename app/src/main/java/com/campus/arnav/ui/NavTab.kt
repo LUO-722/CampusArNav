@@ -119,7 +119,15 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
             topMargin = ctx.dp(8)
         })
 
-        mapFrame.addView(CompassView(ctx), FrameLayout.LayoutParams(ctx.dp(46), ctx.dp(46)).apply {
+        val compass = CompassView(ctx).apply {
+            isClickable = true
+            contentDescription = "回到整张校园图"
+            setOnClickListener {
+                map.fitAll()
+                ctx.toast("已回到整张校园图；点「＋」可放大")
+            }
+        }
+        mapFrame.addView(compass, FrameLayout.LayoutParams(ctx.dp(46), ctx.dp(46)).apply {
             gravity = Gravity.BOTTOM or Gravity.START
             leftMargin = ctx.dp(8)
             bottomMargin = ctx.dp(8)
@@ -351,6 +359,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         UserLocator.stop()
         map.setRoute(emptyList())
         map.setDestination(null, null, null)
+        map.fitAll()
         routeHolder.removeAllViews()
         routeHolder.visibility = View.GONE
         updateA11y()
@@ -375,7 +384,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         val target = RouteRepository.buildings(ctx).firstOrNull { it.name == name }
         if (target != null) map.setDestination(target.lat, target.lon, target.name) else map.setDestination(null, null, null)
         map.setRoute(p.points)
-        if (target != null) map.zoomTo(target.lat, target.lon, 2.2f) else map.fitAll()
+        map.fitRoute(p.points)
         if (fromMe && haveFix) map.setMyLocation(fixLat, fixLon, fixBearing)
         renderRoute(p, name)
         updateA11y()

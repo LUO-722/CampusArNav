@@ -418,6 +418,38 @@ class VectorMapView @JvmOverloads constructor(
         invalidate()
     }
 
+    /**
+     * 把一条路线完整放进视野（比固定 2.2 倍更好用：起点和终点同时看得到）。
+     * 点太少或范围退化时退回 [fitAll]。
+     */
+    fun fitRoute(pts: List<Pair<Double, Double>>) {
+        if (pts.size < 2 || width == 0 || height == 0) { fitAll(); return }
+        var minX = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        for (p in pts) {
+            val x = worldX(p.second)
+            val y = worldY(p.first)
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
+        }
+        val pad = dp(28f)
+        val bw = (maxX - minX).coerceAtLeast(40f)
+        val bh = (maxY - minY).coerceAtLeast(40f)
+        val target = min((width - 2 * pad) / bw, (height - 2 * pad) / bh)
+        val z = (target / fitScale).coerceIn(MIN_ZOOM, MAX_ZOOM)
+        setZoomInternal(z)
+        val cx = (minX + maxX) / 2f
+        val cy = (minY + maxY) / 2f
+        offX = width / 2f - cx * scale
+        offY = height / 2f - cy * scale
+        clampOffsets()
+        invalidate()
+    }
+
     /** 当前缩放倍数（相对整幅，1.0 = fitAll）。 */
     fun currentScale(): Float = zoom
 
@@ -721,6 +753,7 @@ class VectorMapView @JvmOverloads constructor(
     private fun drawLabels(canvas: Canvas, v: CampusVector) {
         val n = labelTexts.size
         if (n == 0) return
+        labelHitCount = 0
         val showAll = zoom >= LABEL_ZOOM
         // 低缩放时只保留目的地附近的楼名，避免文字互相覆盖
         val dLat = destLat
@@ -737,7 +770,10 @@ class VectorMapView @JvmOverloads constructor(
             if (t.isEmpty()) continue
             val x = labelX[i] * scale + offX
             val y = labelY[i] * scale + offY
-            if (x < -dp(60f) || x > width + dp(60f) || y < -dp(30f) || y > height + dp(30f)) continue
+            // 夹在可视区域内，避免楼名被卡片边缘切掉半个字
+            val tw = labelTextPaint.measureText(t)
+            val tx = x.coerceIn(tw / 2f + dp(4f), width - tw / 2f - dp(4f))
+            val ty = y.coerceIn(dp(14f), height - dp(8f))
             if (!showAll && hasDest) {
                 val dx = x - destX
                 val dy = y - destY
@@ -746,8 +782,33 @@ class VectorMapView @JvmOverloads constructor(
                 // 没有目的地时，低缩放只显示前 8 个，避免糊屏
                 if (i >= 8) continue
             }
-            drawHaloText(canvas, t, x, y, labelTextPaint, labelHaloPaint)
+            if (overlapsLabel(tx, ty, tw)) continue
+            drawHaloText(canvas, t, tx, ty, labelTextPaint, labelHaloPaint)
         }
+    }
+
+    /** 已画标签的矩形占位（复用数组，onDraw 里不分配）。 */
+    private val labelHits = FloatArray(4 * 48)
+    private var labelHitCount = 0
+
+    /** 粗略防重叠：新标签与已画的任一标签相交就跳过（宁可少画，不要糊成一团）。 */
+    private fun overlapsLabel(x: Float, y: Float, textWidth: Float): Boolean {
+        val pad = dp(2f)
+        val h = labelTextPaint.textSize + dp(2f)
+        val l = x - textWidth / 2f - pad
+        val r = x + textWidth / 2f + pad
+        val t = y - h - pad
+        val b = y + pad
+        for (i in 0 until labelHitCount) {
+            val k = i * 4
+            if (l < labelHits[k + 2] && r > labelHits[k] && t < labelHits[k + 3] && b > labelHits[k + 1]) return true
+        }
+        if (labelHitCount < 48) {
+            val k = labelHitCount * 4
+            labelHits[k] = l; labelHits[k + 1] = t; labelHits[k + 2] = r; labelHits[k + 3] = b
+            labelHitCount++
+        }
+        return false
     }
 
     /** 白描边 + 实心字，保证底图上可读（两次 drawText，无分配）。 */

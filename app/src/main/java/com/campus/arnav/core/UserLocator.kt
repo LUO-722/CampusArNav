@@ -15,6 +15,11 @@ import kotlin.math.abs
 /**
  * 一次可用的定位结果。UI / 导航层只消费这个，不直接碰 [Location]。
  *
+ * **坐标基准：GCJ-02**。手机 GPS 原始值是 WGS-84，[UserLocator] 在内部已经用
+ * [CoordTransform.wgs2gcj] 转好了，所以这里的 [lat]/[lon] 可以直接和
+ * `RouteRepository` 的楼栋坐标、`campus_graph.json`、底图投影混用，**不要再转一次**
+ * （二次转换会偏出去 ~562 米）。
+ *
  * 注意 [bearing] 的语义：它是「移动方向」（行进方位），不是「手机朝向」。
  * 站着不动时它是 null —— 那时候该用磁力计（见 [UserLocator.headingFusion]），
  * 而不是拿上一次的 GPS 航向硬顶。
@@ -45,6 +50,9 @@ data class Fix(
  *  - 朝向：行进中优先用 GPS 航向（钢筋、手机壳、书包拉链都骗不了它）；
  *    静止时才允许短暂信任磁力计（见 [headingFusion]），并且只信 10 秒内的值。
  *  - 所有回调都在主线程（[Handler] 绑主 Looper），UI 直接 setText 也安全。
+ *  - **坐标：[Fix] 对外输出 GCJ-02**（与 `RouteRepository` / 底图 / 高德同一口径）。
+ *    GPS 芯片给的是 WGS-84，在 [accept] 里用 [CoordTransform.wgs2gcj] 转一次再出门；
+ *    消费者（NavTab、ArNavActivity、CalibrateActivity）拿到就是最终坐标，不要再转。
  */
 object UserLocator {
 
@@ -227,11 +235,16 @@ object UserLocator {
         val accuracy = loc.accuracy
         if (accuracy.isNaN() || accuracy > MAX_ACCURACY_M) return
 
+        // GPS 给的是 WGS-84；业务层统一 GCJ-02，这里转一次，下游（蓝点/算路/AR 距离）不用再管。
+        val gcj = CoordTransform.wgs2gcj(loc.latitude, loc.longitude)
+        val lat = gcj.first
+        val lon = gcj.second
+
         val t = if (loc.time > 0L) loc.time else System.currentTimeMillis()
         val prev = last
         if (prev != null) {
             val dt = abs(t - prev.atMillis)
-            val moved = GeoUtils.distanceMeters(prev.lat, prev.lon, loc.latitude, loc.longitude)
+            val moved = GeoUtils.distanceMeters(prev.lat, prev.lon, lat, lon)
             if (dt < DRIFT_WINDOW_MS && moved > DRIFT_MAX_M) {
                 Log.i(TAG, "drop drift: ${"%.0f".format(moved)} m in $dt ms")
                 return
@@ -240,20 +253,20 @@ object UserLocator {
 
         val speed = if (loc.hasSpeed()) loc.speed.coerceAtLeast(0f) else 0f
         val moved = if (prev != null) {
-            GeoUtils.distanceMeters(prev.lat, prev.lon, loc.latitude, loc.longitude)
+            GeoUtils.distanceMeters(prev.lat, prev.lon, lat, lon)
         } else {
             0.0
         }
         val bearing: Float? = when {
             loc.hasBearing() && speed > BEARING_MIN_SPEED_MPS -> norm360(loc.bearing)
             prev != null && moved > BEARING_MIN_MOVE_M ->
-                norm360(GeoUtils.bearingDeg(prev.lat, prev.lon, loc.latitude, loc.longitude).toFloat())
+                norm360(GeoUtils.bearingDeg(prev.lat, prev.lon, lat, lon).toFloat())
             else -> null
         }
 
         val fix = Fix(
-            lat = loc.latitude,
-            lon = loc.longitude,
+            lat = lat,
+            lon = lon,
             accuracyMeters = accuracy,
             bearing = bearing,
             speedMps = speed,

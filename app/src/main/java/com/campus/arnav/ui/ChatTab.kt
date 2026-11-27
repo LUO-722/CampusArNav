@@ -275,7 +275,9 @@ class ChatTab(
                     try {
                         ActionExecutor.execute(ctx, action)
                     } catch (e: Exception) {
-                        "执行失败：${e.message}"
+                        val type = action.optString("type")
+                        ActionExecutor.logFailure(type, e)
+                        ActionExecutor.humanize(type, e)
                     }
                 }
                 addLog(logs.joinToString("\n") { "· $it" })

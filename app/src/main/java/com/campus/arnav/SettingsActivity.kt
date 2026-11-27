@@ -15,6 +15,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.campus.arnav.core.PoiStore
 import com.campus.arnav.core.Reminder
 import com.campus.arnav.data.AuthStore
 import com.campus.arnav.data.ChatMsg
@@ -194,6 +195,22 @@ class SettingsActivity : AppCompatActivity() {
         ))
         box.addView(toolCard, cardLp())
 
+        // ⑤ 地图与定位（坐标口径说明 + 两个一次性清理入口）
+        val mapCard = card(this, 14)
+        mapCard.addView(headerRow("地图与定位", "坐标 GCJ-02 · 蓝点与底图同口径", null))
+        mapCard.addView(textView(this,
+            "坐标基准：GCJ-02（国内底图口径）。手机 GPS 已自动换算，界面里的蓝点与楼栋底图不会再偏。\n" +
+                "旧版「取点校准」存的是 GPS 原始坐标（WGS-84），按现在的口径解释会偏约 560 米 —— 可以一键清理后重新取点。",
+            12f, color(R.color.text_secondary)
+        ).apply { setPadding(0, dp(6), 0, dp(6)) })
+        mapCard.addView(actionRow(
+            "清理旧的取点数据" to { confirmPurgeLegacy() }
+        ))
+        mapCard.addView(actionRow(
+            "重置底图偏好" to { resetBaseKind() }
+        ))
+        box.addView(mapCard, cardLp())
+
         // 状态行 + 保存
         status = textView(this, "", 12f, color(R.color.text_secondary)).apply {
             setPadding(0, dp(10), 0, dp(6))
@@ -212,7 +229,7 @@ class SettingsActivity : AppCompatActivity() {
             "· 打开即用：云端模型已内置，无需任何配置。\n" +
                 "· 有网络时自动接入云端（问答、录活动、写课表都在云端判断）；断网自动切离线知识库 + 本机规则。\n" +
                 "· 图片文字识别走手机本机 ML Kit 中文 OCR，离线、免费、不传图片。\n" +
-                "· 高德路线走 uri.amap.com，无需配置。",
+                "· 路线跳转走系统地图 App（URI），无需配置。",
             11f, color(R.color.text_secondary)
         ).apply { setPadding(0, dp(14), 0, 0) })
 
@@ -424,6 +441,43 @@ class SettingsActivity : AppCompatActivity() {
                 if (i > 0) leftMargin = dp(8)
             })
         }
+    }
+
+    /** ② 地图与定位：清理旧口径的取点数据（二次确认）。 */
+    private fun confirmPurgeLegacy() {
+        AlertDialog.Builder(this, R.style.Theme_CampusAr_Dialog)
+            .setTitle("清理旧的取点数据")
+            .setMessage(
+                "会删掉旧版「取点校准」保存的自定义取点（当时存的是 GPS 原始坐标，和现在的底图差约 560 米），" +
+                    "楼栋默认坐标和其它设置不受影响。\n" +
+                    "清理后如果还想要精确到门口，重新去「③ 校园取点校准」站到楼门口点一次即可。"
+            )
+            .setNegativeButton("取消", null)
+            .setPositiveButton("清理") { _, _ ->
+                val n = PoiStore.purgeLegacy(this)
+                status.text = if (n > 0) "已清理 $n 条旧取点，可以重新取点校准。" else "没有需要清理的旧取点：现有取点都是新口径。"
+                android.widget.Toast.makeText(
+                    this,
+                    if (n > 0) "已清理 $n 条旧取点" else "没有旧取点需要清理",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+                setResult(RESULT_OK)
+            }
+            .show()
+    }
+
+    /** ③ 地图与定位：把底图偏好恢复成默认卫星图（下次进导航页生效）。 */
+    private fun resetBaseKind() {
+        val prefs = getSharedPreferences("zhijia_map", MODE_PRIVATE)
+        val had = prefs.contains("base_kind")
+        prefs.edit().remove("base_kind").apply()
+        status.text = if (had) "已恢复默认卫星图，下次打开 App 生效。" else "当前就是默认卫星图，没有需要重置的偏好。"
+        android.widget.Toast.makeText(
+            this,
+            if (had) "已恢复默认卫星图（下次进入 App 生效）" else "已经是默认卫星图",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+        setResult(RESULT_OK)
     }
 
     /** 改提前分钟数：立刻重排提醒，并给出反馈。 */

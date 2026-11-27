@@ -1,0 +1,118 @@
+{
+  "schema": "campus-calib/1",
+  "frame": "GCJ-02",
+  "note": "ortho 由高德卫星标注图（z=17，带 POI 名称）上的 6 个地标做仿射拟合：lon/lat → 图像素；残差 ≈98 米（图上 ±48 像素）。其余三张图只作观感底图，不做单应标定。",
+  "bounds": {
+    "latMin": 34.341622,
+    "latMax": 34.348764,
+    "lonMin": 117.369571,
+    "lonMax": 117.375643
+  },
+  "images": [
+    {
+      "name": "campus_guide",
+      "file": "campus_guide.jpg",
+      "w": 1920,
+      "height": 1080,
+      "residualPx": null,
+      "control": [],
+      "matrix": [],
+      "calibrated": false
+    },
+    {
+      "name": "campus_ortho",
+      "file": "campus_ortho.jpg",
+      "w": 1279,
+      "height": 1736,
+      "residualPx": 178.5,
+      "pickErrorPx": 3.0,
+      "scalePxPerMetre": 2.131,
+      "scalePxPerMetreX": 2.238,
+      "scalePxPerMetreY": 2.024,
+      "rotationDeg": 0.0,
+      "anchor": {
+        "px": 656.0,
+        "py": 857.5,
+        "lat": 34.345479,
+        "lon": 117.37496
+      },
+      "control": [
+        {
+          "name": "图书馆",
+          "px": 656,
+          "py": 1258,
+          "lat": 34.343418,
+          "lon": 117.37204
+        },
+        {
+          "name": "体育馆",
+          "px": 285,
+          "py": 1465,
+          "lat": 34.342001,
+          "lon": 117.370913
+        },
+        {
+          "name": "一食堂",
+          "px": 500,
+          "py": 330,
+          "lat": 34.34767,
+          "lon": 117.371986
+        },
+        {
+          "name": "二食堂",
+          "px": 790,
+          "py": 330,
+          "lat": 34.347892,
+          "lon": 117.373703
+        },
+        {
+          "name": "田径场",
+          "px": 233,
+          "py": 1058,
+          "lat": 34.344038,
+          "lon": 117.37102
+        },
+        {
+          "name": "双创楼",
+          "px": 1105,
+          "py": 800,
+          "lat": 34.344216,
+          "lon": 117.375848
+        }
+      ],
+      "matrix": [
+        167930.62419053895,
+        266.7509831293719,
+        -19719018.146856464,
+        -46219.550279795454,
+        -183831.41479470226,
+        11739448.108246122,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "calibrated": true,
+      "note": "6 个地标（图书馆/体育馆/一食堂/二食堂/田径场/双创楼）与高德卫星标注图 z=17 配对拟合，矩阵为 lon/lat·H = 像素"
+    },
+    {
+      "name": "campus_index",
+      "file": "campus_index.jpg",
+      "w": 1280,
+      "height": 640,
+      "residualPx": null,
+      "control": [],
+      "matrix": [],
+      "calibrated": false
+    },
+    {
+      "name": "campus_traffic",
+      "file": "campus_traffic.jpg",
+      "w": 1280,
+      "height": 934,
+      "residualPx": null,
+      "control": [],
+      "matrix": [],
+      "calibrated": false
+    }
+  ]
+}

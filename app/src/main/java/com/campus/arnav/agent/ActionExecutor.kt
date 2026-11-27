@@ -3,6 +3,7 @@ package com.campus.arnav.agent
 import android.content.Context
 import android.content.Intent
 import android.provider.AlarmClock
+import android.util.Log
 import com.campus.arnav.ArNavActivity
 import com.campus.arnav.core.RouteRepository
 import com.campus.arnav.data.ActivityDraft
@@ -17,6 +18,20 @@ import java.util.Locale
  * 所有方法在后台线程调用；只有闹钟 Intent 会切到系统时钟。
  */
 object ActionExecutor {
+
+    private const val TAG = "ActionExecutor"
+
+    /** 协议键 → 中文名，给用户看的失败提示用；与 AgentEngine.describe 的口径保持一致。 */
+    private val ACTION_NAMES = mapOf(
+        "add_course" to "加课",
+        "add_activity" to "录活动",
+        "set_alarm" to "设闹钟",
+        "search_kb" to "查知识库",
+        "list_schedule" to "查日程",
+        "navigate" to "导航",
+        "delete_course" to "删课",
+        "delete_activity" to "删活动"
+    )
 
     fun execute(ctx: Context, action: JSONObject): String {
         val type = action.optString("type").trim()
@@ -33,8 +48,29 @@ object ActionExecutor {
                 else -> "未识别的动作：$type"
             }
         } catch (e: Exception) {
-            "动作 $type 执行失败：${e.message}"
+            logFailure(type, e)
+            humanize(type, e)
         }
+    }
+
+    /** 把系统异常翻译成人话。绝不把 e.message 这种英文原文抛给用户。 */
+    fun humanize(type: String, e: Throwable): String {
+        val name = ACTION_NAMES[type] ?: "这个操作"
+        return when (e) {
+            is SecurityException ->
+                "系统拒绝了「智嘉」执行「$name」的权限，我没法替你完成。请在手机系统设置里允许本应用对应权限后再试，或手动做一次。"
+            is android.content.ActivityNotFoundException ->
+                "这台设备上没有能处理「$name」的应用，请手动操作一次。"
+            is IllegalArgumentException ->
+                "「$name」的参数不对，请换一种说法再试。"
+            else ->
+                "「$name」没成功，可能是系统限制或数据异常；详细原因已写入日志。"
+        }
+    }
+
+    /** 原始异常只进日志（含堆栈），不进聊天界面。 */
+    fun logFailure(type: String, e: Throwable) {
+        Log.e(TAG, "action=$type failed: ${e.javaClass.simpleName}", e)
     }
 
     private fun addCourse(ctx: Context, a: JSONObject): String {
@@ -105,8 +141,23 @@ object ActionExecutor {
             putExtra(AlarmClock.EXTRA_SKIP_UI, false)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        ctx.startActivity(intent)
-        return String.format(Locale.US, "已打开系统闹钟：%02d:%02d（%s）。请在时钟应用里确认保存。", h, m, label)
+        if (intent.resolveActivity(ctx.packageManager) == null) {
+            return String.format(
+                Locale.US,
+                "这台设备没有可调起的系统时钟应用，请在手机自带的「时钟」里手动新建 %02d:%02d（%s）。",
+                h, m, label
+            )
+        }
+        return try {
+            ctx.startActivity(intent)
+            String.format(Locale.US, "已打开系统闹钟：%02d:%02d（%s）。请在时钟应用里确认保存。", h, m, label)
+        } catch (e: SecurityException) {
+            logFailure("set_alarm", e)
+            String.format(Locale.US, "系统没给「智嘉」设闹钟的权限（要建的是 %02d:%02d）。请在手机自带的「时钟」里手动新建这个闹钟。", h, m)
+        } catch (e: android.content.ActivityNotFoundException) {
+            logFailure("set_alarm", e)
+            String.format(Locale.US, "这台设备没有可调起的系统时钟应用，请在手机自带的「时钟」里手动新建 %02d:%02d（%s）。", h, m, label)
+        }
     }
 
     private fun searchKb(ctx: Context, a: JSONObject): String {

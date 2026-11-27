@@ -6,15 +6,20 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
 import android.net.Uri
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -33,7 +38,8 @@ import java.net.URLEncoder
  * ③ 校园导航（2D 版）：
  *  - 主视图是自绘离线地图 [CampusMapView]，路线来自离线路网 [CampusGraph] 的 A* 算路；
  *  - 可用 GPS 定位作为起点并跟随（[UserLocator]），定位不可用时退回「南门」；
- *  - AR 实景与高德路线降级为可选入口，不再当主力。
+ *  - AR 实景与外部地图路线降级为可选入口，不再当主力。
+ *  - 上方可切「卫星图 / 导览图」，左上角图例、左下角指北针、右下角缩放，均不依赖外部地图应用。
  */
 class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
@@ -57,6 +63,14 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
     private val startLabel = textView(ctx, "起点：南门", 12f, ctx.color(R.color.accent_ink), bold = true)
 
+    // ---- 底图切换（选择记忆在 zhijia_map，下次进来沿用） ----
+    private val mapPrefs = ctx.getSharedPreferences("zhijia_map", Context.MODE_PRIVATE)
+
+    /** `campus_ortho` = 卫星图（默认），`campus_guide` = 官方导览图。 */
+    private var baseKind: String = "campus_ortho"
+    private lateinit var chipOrtho: TextView
+    private lateinit var chipGuide: TextView
+
     init {
         orientation = VERTICAL
         // 不铺纯色底，让 MainShell 的 #FFF1F7→#EDF7FF 渐变透出来
@@ -76,14 +90,56 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         }, LinearLayout.LayoutParams(ctx.dp(72), ctx.dp(34)))
         addView(head)
 
-        // 地图卡片
+        // 底图切换：卫星图 / 导览图
+        addView(baseChipRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = ctx.dp(6)
+        })
+
+        // 地图卡片（底图之上叠加：图例、指北针、缩放）
         val mapCard = card(ctx, 12)
         mapCard.setPadding(ctx.dp(6), ctx.dp(6), ctx.dp(6), ctx.dp(6))
-        mapCard.addView(map, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(300)))
+
+        val mapFrame = FrameLayout(ctx)
+        mapFrame.addView(map, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        val legendBtn = textView(ctx, "图例", 11f, ctx.color(R.color.accent_ink), bold = true).apply {
+            setPadding(ctx.dp(10), ctx.dp(6), ctx.dp(10), ctx.dp(6))
+            background = rounded(ctx, ctx.color(R.color.bg_card), 12)
+            setOnClickListener { showLegend() }
+        }
+        mapFrame.addView(legendBtn, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.TOP or Gravity.START
+            leftMargin = ctx.dp(8)
+            topMargin = ctx.dp(8)
+        })
+
+        mapFrame.addView(CompassView(ctx), FrameLayout.LayoutParams(ctx.dp(46), ctx.dp(46)).apply {
+            gravity = Gravity.BOTTOM or Gravity.START
+            leftMargin = ctx.dp(8)
+            bottomMargin = ctx.dp(8)
+        })
+
+        val zoomCol = LinearLayout(ctx).apply { orientation = VERTICAL }
+        zoomCol.addView(zoomButton("＋") { map.zoomBy(1.4f) }, LinearLayout.LayoutParams(ctx.dp(36), ctx.dp(36)))
+        zoomCol.addView(zoomButton("－") { map.zoomBy(0.7f) }, LinearLayout.LayoutParams(ctx.dp(36), ctx.dp(36)).apply {
+            topMargin = ctx.dp(6)
+        })
+        mapFrame.addView(zoomCol, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            rightMargin = ctx.dp(8)
+            bottomMargin = ctx.dp(8)
+        })
+
+        mapCard.addView(mapFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(300)))
         addView(mapCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = ctx.dp(8)
         })
         map.setOnBuildingTap { b -> plan(b.name) }
+
+        // 比例尺说明（不出现任何外部地图服务名）
+        addView(textView(ctx, "约 100 米/格 · 数据为示意图，实际以现场为准", 10f, ctx.color(R.color.text_secondary)).apply {
+            setPadding(ctx.dp(2), ctx.dp(4), 0, 0)
+        })
 
         // 起点 / 定位 / 清除
         val tools = LinearLayout(ctx).apply {
@@ -132,7 +188,95 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         if (CampusGraph.load(ctx)) {
             map.setBuildings(RouteRepository.buildings(ctx))
         }
+
+        // 恢复上次选择的底图（未知值一律回到卫星图）
+        val saved = mapPrefs.getString("base_kind", "campus_ortho")
+        baseKind = if (saved == "campus_guide") "campus_guide" else "campus_ortho"
+        if (baseKind != "campus_ortho") map.setBaseKind(baseKind)
+        renderBaseChips()
+        updateA11y()
+
         render()
+    }
+
+    // ---------------- 底图 / 图例 / 缩放 / 无障碍 ----------------
+
+    /** 「底图」+ 卫星图 / 导览图 两枚胶囊。 */
+    private fun baseChipRow(): LinearLayout {
+        val row = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        row.addView(textView(ctx, "底图", 11f, ctx.color(R.color.text_secondary)).apply {
+            setPadding(0, 0, ctx.dp(8), 0)
+        })
+        chipOrtho = baseChip("卫星图") { switchBase("campus_ortho") }
+        chipGuide = baseChip("导览图") { switchBase("campus_guide") }
+        row.addView(chipOrtho, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dp(32)))
+        row.addView(chipGuide, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dp(32)).apply {
+            leftMargin = ctx.dp(6)
+        })
+        renderBaseChips()
+        return row
+    }
+
+    private fun baseChip(label: String, onTap: () -> Unit): TextView =
+        textView(ctx, label, 12f, ctx.color(R.color.accent_ink), bold = true).apply {
+            gravity = Gravity.CENTER
+            setPadding(ctx.dp(14), 0, ctx.dp(14), 0)
+            background = rounded(ctx, ctx.color(R.color.bg_card), 14)
+            setOnClickListener { onTap() }
+        }
+
+    private fun renderBaseChips() {
+        if (!::chipOrtho.isInitialized || !::chipGuide.isInitialized) return
+        paintChip(chipOrtho, baseKind == "campus_ortho")
+        paintChip(chipGuide, baseKind == "campus_guide")
+    }
+
+    private fun paintChip(chip: TextView, selected: Boolean) {
+        chip.background = rounded(ctx, ctx.color(if (selected) R.color.accent else R.color.bg_card), 14)
+        chip.setTextColor(ctx.color(if (selected) R.color.bg_card else R.color.accent_ink))
+    }
+
+    private fun switchBase(kind: String) {
+        val next = if (kind == "campus_guide") "campus_guide" else "campus_ortho"
+        baseKind = next
+        map.setBaseKind(next)
+        mapPrefs.edit().putString("base_kind", next).apply()
+        renderBaseChips()
+        updateA11y()
+        ctx.toast(if (next == "campus_guide") "已切换到导览图" else "已切换到卫星图")
+    }
+
+    /** 图例：官图上的 1—15 编号。 */
+    private fun showLegend() {
+        val body = listOf(
+            "1 崇德楼", "2 明志楼", "3 风华楼", "4 格物楼", "5 笃行楼",
+            "6 致广楼", "7 博学楼", "8 弘毅楼", "9 匠心楼", "10 精工楼",
+            "11 明志报告厅", "12 星垂湖", "13 韶光园", "14 青荇园", "15 思齐广场"
+        ).joinToString("\n")
+        AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
+            .setTitle("图例")
+            .setMessage("$body\n\n底图与编号来自学院官方导览图")
+            .setPositiveButton("知道了", null)
+            .show()
+    }
+
+    /** 缩放按钮：以视图中心为锚，CampusMapView 内已 clamp 到合理范围。 */
+    private fun zoomButton(label: String, onTap: () -> Unit): TextView =
+        textView(ctx, label, 18f, ctx.color(R.color.accent_ink), bold = true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(ctx, ctx.color(R.color.bg_card), 18)
+            setOnClickListener { onTap() }
+        }
+
+    /** 无障碍：地图当前底图 + 目的地 + 路线长度，随状态更新。 */
+    private fun updateA11y() {
+        val kindText = if (baseKind == "campus_guide") "导览图" else "卫星图"
+        val dest = destName?.let { "，已选目的地：$it" } ?: ""
+        val dist = path?.let { "，路线 ${it.distanceMeters} 米" } ?: ""
+        map.contentDescription = "校园地图，当前显示：$kindText$dest$dist"
     }
 
     fun refresh() {
@@ -191,6 +335,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         map.setFollowUser(false)
         routeHolder.removeAllViews()
         routeHolder.visibility = View.GONE
+        updateA11y()
     }
 
     private fun plan(name: String) {
@@ -214,6 +359,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         map.zoomToRoute()
         if (fromMe && haveFix) map.setMyLocation(fixLat, fixLon, fixBearing)
         renderRoute(p, name)
+        updateA11y()
     }
 
     private fun startFollow() {
@@ -264,7 +410,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         acts.addView(button(ctx, "AR", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
             setOnClickListener { openAr(name) }
         }, LinearLayout.LayoutParams(0, ctx.dp(34), 0.7f).apply { leftMargin = ctx.dp(6) })
-        acts.addView(button(ctx, "高德", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
+        acts.addView(button(ctx, "外部地图", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
             setOnClickListener { findBuilding(name)?.let { openAmap(it.lon, it.lat, it.name, true) } }
         }, LinearLayout.LayoutParams(0, ctx.dp(34), 0.7f).apply { leftMargin = ctx.dp(6) })
         wrap.addView(acts)
@@ -317,11 +463,20 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     private fun showMore() {
         AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
             .setTitle("导航工具")
-            .setItems(arrayOf("罗盘自检（AR 用）", "楼栋取点校准", "路线说明")) { _, which ->
+            .setItems(arrayOf("罗盘自检（AR 用）", "楼栋取点校准", "关于坐标", "路线说明")) { _, which ->
                 when (which) {
                     0 -> ctx.startActivity(Intent(ctx, CompassTestActivity::class.java))
                     1 -> ctx.startActivity(Intent(ctx, CalibrateActivity::class.java))
-                    else -> AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
+                    2 -> AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
+                        .setTitle("关于坐标")
+                        .setMessage(
+                            "· GPS 已自动换算：手机给的是 WGS-84，App 内部统一成 GCJ-02 再画蓝点和算距离。\n" +
+                                "· 蓝点不会偏：它和楼栋、底图用的是同一套坐标，误差只剩 GPS 本身的几米。\n" +
+                                "· 旧的取点数据是换算前的口径，会偏约 560 米；可在「设置 → 地图与定位」一键清理后重新取点。"
+                        )
+                        .setPositiveButton("知道了", null)
+                        .show()
+                    3 -> AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
                         .setTitle("路线说明")
                         .setMessage(
                             "· 地图是离线示意图，楼与路的相对位置按官方平面导览图排的，不是卫星影像。\n" +
@@ -345,7 +500,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         try {
             ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
         } catch (e: ActivityNotFoundException) {
-            ctx.toast("没有找到高德地图，也没有浏览器可打开链接")
+            ctx.toast("没有找到可用的地图应用")
         }
     }
 
@@ -358,5 +513,44 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     fun straightMeters(name: String): Int {
         val b = findBuilding(name) ?: return 0
         return GeoUtils.distanceMeters(RouteRepository.gate.lat, RouteRepository.gate.lon, b.lat, b.lon).toInt()
+    }
+}
+
+/** 指北针：图北朝上，不随地图旋转（官方底图都是北朝上）。 */
+private class CompassView(ctx: Context) : View(ctx) {
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = context.dp(1).toFloat()
+        color = context.color(R.color.text_secondary)
+    }
+    private val arrow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = context.color(R.color.accent)
+    }
+    private val letter = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = context.color(R.color.accent_ink)
+        textSize = context.dp(9).toFloat()
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val cx = width / 2f
+        val cy = height / 2f
+        val r = minOf(cx, cy) - context.dp(2)
+        canvas.drawCircle(cx, cy, r, ring)
+        canvas.drawText("N", cx, cy - r * 0.34f, letter)
+        val tipY = cy - r * 0.12f
+        val tailY = cy + r * 0.52f
+        canvas.drawPath(
+            Path().apply {
+                moveTo(cx, tipY)
+                lineTo(cx - r * 0.2f, tailY)
+                lineTo(cx, tailY - r * 0.18f)
+                lineTo(cx + r * 0.2f, tailY)
+                close()
+            },
+            arrow
+        )
     }
 }

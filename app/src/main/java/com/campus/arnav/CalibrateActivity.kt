@@ -15,6 +15,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.campus.arnav.core.CoordTransform
 import com.campus.arnav.core.PoiStore
 import com.campus.arnav.core.RouteRepository
 import com.campus.arnav.ui.insLightBars
@@ -181,9 +182,11 @@ class CalibrateActivity : AppCompatActivity() {
         statusView.text = if (loc == null) {
             "正在定位…（到室外或窗边等一下）"
         } else {
+            // PoiStore 里存的是 GCJ-02（与楼栋坐标/底图同口径），这里显示转换后的值，方便和地图核对
+            val g = gcjOf(loc)
             String.format(
-                Locale.US, "当前 GPS：%.6f, %.6f   精度 ±%.0f 米",
-                loc.latitude, loc.longitude, loc.accuracy
+                Locale.US, "当前 GPS（GCJ-02）：%.6f, %.6f   精度 ±%.0f 米",
+                g.first, g.second, loc.accuracy
             )
         }
     }
@@ -250,7 +253,8 @@ class CalibrateActivity : AppCompatActivity() {
                     Toast.makeText(this, "名字不能为空", Toast.LENGTH_SHORT).show()
                 } else {
                     val id = "u" + System.currentTimeMillis()
-                    PoiStore.saveCustom(this, id, name, loc.latitude, loc.longitude)
+                    val g = gcjOf(loc)
+                    PoiStore.saveCustom(this, id, name, g.first, g.second)
                     rebuildList()
                     Toast.makeText(this, "已保存：$name", Toast.LENGTH_SHORT).show()
                 }
@@ -273,12 +277,18 @@ class CalibrateActivity : AppCompatActivity() {
             ).show()
             return
         }
-        PoiStore.save(this, b.id, loc.latitude, loc.longitude)
+        // 存进去的是 GCJ-02（与 RouteRepository / 底图一致），不是 GPS 原始 WGS-84
+        val g = gcjOf(loc)
+        PoiStore.save(this, b.id, g.first, g.second)
         rebuildList()
         Toast.makeText(
             this,
-            String.format(Locale.US, "已记录 %s：%.6f, %.6f", b.name, loc.latitude, loc.longitude),
+            String.format(Locale.US, "已记录 %s：%.6f, %.6f", b.name, g.first, g.second),
             Toast.LENGTH_SHORT
         ).show()
     }
+
+    /** GPS 原始值（WGS-84）→ 项目统一口径（GCJ-02）。 */
+    private fun gcjOf(loc: Location): Pair<Double, Double> =
+        CoordTransform.wgs2gcj(loc.latitude, loc.longitude)
 }

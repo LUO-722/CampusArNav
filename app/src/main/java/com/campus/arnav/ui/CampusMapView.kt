@@ -10,28 +10,37 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.util.AttributeSet
+import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import com.campus.arnav.R
 import com.campus.arnav.core.Building
+import com.campus.arnav.core.CampusProjection
 import com.campus.arnav.core.GeoUtils
 import com.campus.arnav.core.NavRoute
 import com.campus.arnav.core.RouteRepository
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * 自绘 2D 校园地图：完全离线，不依赖任何地图 SDK。
+ * 自绘 2D 校园地图 v2：真实官方底图 + 经纬度投影，完全离线，不依赖任何地图 SDK。
  *
- * 底图 [R.drawable.campus_map]（1600×1320）与 [LAT_MIN]..[LAT_MAX] / [LON_MIN]..[LON_MAX]
- * 严格线性对应：边界取 [RouteRepository] 全部楼栋 + 南门的外接矩形再各放 5% 边距，
- * 所以楼栋点、路线、蓝点在同一坐标框架里自洽。
+ * 底图有四种（[setBaseKind]）：
+ * - `campus_ortho`  1279×1736 卫星正射（默认）
+ * - `campus_guide`  1920×1080 官方平面导览（插画透视）
+ * - `campus_index`  1280×640 卫星 + 编号图例
+ * - `campus_traffic` 1280×934 交通导览
  *
- * 手势：双指缩放（0.6×–4×，相对「整图适配」的基准比例）、单指拖动、双击放大；
- * 单击楼栋点回调 [OnBuildingTap]。用户一拖动就退出 [setFollowUser] 跟随。
+ * 坐标链路：`lat/lon` → 图片像素（[CampusProjection]，assets/campus_calib.json 的单应矩阵）
+ * 到位后替换）→ 屏幕（`img * scale + off`）。楼栋、路线、蓝点、目的地全部走这条链路，
+ * 所以线能压在真实道路上。
+ *
+ * 手势：双指缩放（0.6×–4×，相对「整图适配」基准）、单指拖动、双击放大；
+ * 单击楼栋点回调 [OnBuildingTap]；[zoomBy] 供外部缩放按钮使用。
  */
 class CampusMapView @JvmOverloads constructor(
     context: Context,
@@ -44,34 +53,37 @@ class CampusMapView @JvmOverloads constructor(
     }
 
     private companion object {
-        const val IMG_W = 1600f
-        const val IMG_H = 1320f
-
-        // 与 res/drawable-nodpi/campus_map.png 的边界一一对应。
-        const val LAT_MIN = 34.342066
-        const val LAT_MAX = 34.349330
-        const val LON_MIN = 117.368916
-        const val LON_MAX = 117.379573
-
         const val MIN_ZOOM = 0.6f
         const val MAX_ZOOM = 4f
-        const val ALL_LABELS_ZOOM = 1.7f
+        const val ALL_LABELS_ZOOM = 1.8f
+        const val MAX_TEXTURE_SIDE = 2048
+
+        const val KIND_ORTHO = "campus_ortho"
+        const val KIND_GUIDE = "campus_guide"
+        const val KIND_INDEX = "campus_index"
+        const val KIND_TRAFFIC = "campus_traffic"
     }
 
     private val density = resources.displayMetrics.density
-    private val scaledDensity = resources.displayMetrics.scaledDensity
     private fun dp(v: Float) = v * density
-    private fun sp(v: Float) = v * scaledDensity
+    private fun sp(v: Float) = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_SP, v, resources.displayMetrics
+    )
 
     private val cBgFill = context.getColor(R.color.bg_dark)
     private val cAccent = context.getColor(R.color.accent)
     private val cAccentInk = context.getColor(R.color.accent_ink)
     private val cBlue = context.getColor(R.color.accent_blue)
+    private val cBorder = context.getColor(R.color.border)
     private val cTextPrimary = context.getColor(R.color.text_primary)
     private val cTextSecondary = context.getColor(R.color.text_secondary)
+    private val cWhite = Color.WHITE
 
     // ---- 数据 ----
+    private var baseKind: String = KIND_ORTHO
     private var buildings: List<Building> = emptyList()
+    private var routeLat = DoubleArray(0)
+    private var routeLon = DoubleArray(0)
     private var destination: Building? = null
     private var myLat = Double.NaN
     private var myLon = Double.NaN
@@ -79,12 +91,13 @@ class CampusMapView @JvmOverloads constructor(
     private var followUser = false
     private var onTap: OnBuildingTap? = null
 
+    // ---- 底图 ----
+    private var mapBmp: Bitmap? = null
+    private var imgW = 0f
+    private var imgH = 0f
+    private var laidOut = false
+
     // ---- 变换：screen = img * scale + off ----
-    private val mapBmp: Bitmap? = try {
-        BitmapFactory.decodeResource(resources, R.drawable.campus_map)
-    } catch (e: OutOfMemoryError) {
-        null
-    }
     private var baseScale = 1f
     private var scale = 0f
     private var offX = 0f
@@ -100,10 +113,16 @@ class CampusMapView @JvmOverloads constructor(
     private var routeImgY = FloatArray(0)
     private var routeScrX = FloatArray(0)
     private var routeScrY = FloatArray(0)
+    private var myImgX = 0f
+    private var myImgY = 0f
     private val nearestIdx = IntArray(3)
+
+    /** 当前底图横向 1 图片像素对应多少米（比例尺用）。 */
+    private var imgPxPerMeter = 0f
 
     private val dstRect = RectF()
     private val sectorRect = RectF()
+    private val labelRect = RectF()
     private val sectorPath = Path()
     private val routePath = Path()
 
@@ -113,7 +132,7 @@ class CampusMapView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = Color.WHITE
+        color = cWhite
         strokeWidth = dp(14f)
     }
     private val routeDonePaint = Paint(routeCasingPaint).apply {
@@ -130,19 +149,28 @@ class CampusMapView @JvmOverloads constructor(
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val sectorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+
+    /** 官图式楼名小牌：白底圆角 + 深色字。 */
+    private val labelPillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xF0FFFFFF.toInt()
+    }
+    private val labelPillStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1f)
+        color = cBorder
+    }
     private val labelFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = sp(11f)
+        textSize = sp(9f)
         typeface = Typeface.DEFAULT
         color = cTextPrimary
     }
-    private val labelStrokePaint = Paint(labelFillPaint).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = dp(3f)
-        strokeJoin = Paint.Join.ROUND
-        color = Color.WHITE
+    private val destPillStrokePaint = Paint(labelPillStrokePaint).apply {
+        strokeWidth = dp(1.4f)
+        color = cAccent
     }
-    private val destLabelPaint = Paint(labelFillPaint).apply {
-        textSize = sp(12f)
+    private val destTextPaint = Paint(labelFillPaint).apply {
+        textSize = sp(10f)
         typeface = Typeface.DEFAULT_BOLD
         color = cAccentInk
     }
@@ -156,14 +184,11 @@ class CampusMapView @JvmOverloads constructor(
         textSize = sp(10f)
     }
 
-    /** 经度跨度对应的米数，用于比例尺。 */
-    private val lonSpanMeters = (LON_MAX - LON_MIN) * 111320.0 *
-        cos(Math.toRadians((LAT_MIN + LAT_MAX) / 2.0))
-
     private val scaleDetector = ScaleGestureDetector(context,
         object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 val b = baseScale
+                if (b <= 0f || scale <= 0f) return false
                 val newScale = (scale * detector.scaleFactor).coerceIn(b * MIN_ZOOM, b * MAX_ZOOM)
                 val f = newScale / scale
                 offX = detector.focusX - (detector.focusX - offX) * f
@@ -200,6 +225,7 @@ class CampusMapView @JvmOverloads constructor(
 
             override fun onDoubleTap(e: MotionEvent): Boolean {
                 val b = baseScale
+                if (b <= 0f || scale <= 0f) return false
                 val newScale = (scale * 1.6f).coerceIn(b * MIN_ZOOM, b * MAX_ZOOM)
                 val f = newScale / scale
                 offX = e.x - (e.x - offX) * f
@@ -214,11 +240,13 @@ class CampusMapView @JvmOverloads constructor(
     init {
         isClickable = true
         contentDescription = "校园地图"
+        CampusProjection.load(context)
+        loadBase()
     }
 
     // ---------------------------------------------------------------- API
 
-    /** 楼栋清单（[RouteRepository.buildings]）。 */
+    /** 楼栋清单（通常来自 [RouteRepository.buildings]）。 */
     fun setBuildings(list: List<Building>) {
         buildings = list
         val n = list.size
@@ -228,8 +256,7 @@ class CampusMapView @JvmOverloads constructor(
         scrY = FloatArray(n)
         labelShown = BooleanArray(n)
         for (i in 0 until n) {
-            imgX[i] = lonToImgX(list[i].lon)
-            imgY[i] = latToImgY(list[i].lat)
+            projectInto(list[i].lat, list[i].lon, imgX, imgY, i)
         }
         invalidate()
     }
@@ -243,13 +270,16 @@ class CampusMapView @JvmOverloads constructor(
     /** 路线折线（lat, lon 顺序）。 */
     fun setRoute(points: List<Pair<Double, Double>>) {
         val n = points.size
+        routeLat = DoubleArray(n)
+        routeLon = DoubleArray(n)
         routeImgX = FloatArray(n)
         routeImgY = FloatArray(n)
         routeScrX = FloatArray(n)
         routeScrY = FloatArray(n)
         for (i in 0 until n) {
-            routeImgX[i] = lonToImgX(points[i].second)
-            routeImgY[i] = latToImgY(points[i].first)
+            routeLat[i] = points[i].first
+            routeLon[i] = points[i].second
+            projectInto(points[i].first, points[i].second, routeImgX, routeImgY, i)
         }
         invalidate()
     }
@@ -265,6 +295,11 @@ class CampusMapView @JvmOverloads constructor(
         myLat = lat
         myLon = lon
         myBearing = bearing
+        val p = CampusProjection.project(baseKind, lat, lon)
+        if (p != null) {
+            myImgX = p.first
+            myImgY = p.second
+        }
         if (followUser) centerOnUser()
         updateA11y()
         invalidate()
@@ -300,6 +335,58 @@ class CampusMapView @JvmOverloads constructor(
         onTap = if (cb == null) null else OnBuildingTap { b -> cb(b) }
     }
 
+    /**
+     * 切换底图。支持 `campus_ortho`（默认）/`campus_guide`/`campus_index`/`campus_traffic`；
+     * 未知 kind 直接忽略。切换后重新投影所有坐标并 [fitAll] 复位缩放、退出跟随。
+     */
+    fun setBaseKind(kind: String) {
+        if (CampusProjection.size(kind) == null) return
+        if (kind == baseKind && mapBmp != null) return
+        val bmp = decodeBase(kind) ?: return
+        baseKind = kind
+        mapBmp = bmp
+        imgW = bmp.width.toFloat()
+        imgH = bmp.height.toFloat()
+        reprojectAll()
+        fitAll()
+        updateA11y()
+        invalidate()
+    }
+
+    /** 当前底图 kind（`campus_ortho` 等）。 */
+    fun currentBaseKind(): String = baseKind
+
+    /**
+     * 以视图中心为锚缩放，供外部「＋ / －」按钮使用。
+     * factor &gt; 1 放大、&lt; 1 缩小；结果 clamp 在 `baseScale * MIN_ZOOM .. baseScale * MAX_ZOOM`。
+     */
+    fun zoomBy(factor: Float) {
+        if (width == 0 || height == 0 || scale <= 0f) return
+        val b = baseScale
+        if (b <= 0f) return
+        val newScale = (scale * factor).coerceIn(b * MIN_ZOOM, b * MAX_ZOOM)
+        val f = newScale / scale
+        val cx = width / 2f
+        val cy = height / 2f
+        offX = cx - (cx - offX) * f
+        offY = cy - (cy - offY) * f
+        scale = newScale
+        clampOffsets()
+        invalidate()
+    }
+
+    /** 整图适配：缩放到正好装下整张底图、居中、退出跟随。 */
+    fun fitAll() {
+        if (width == 0 || height == 0 || imgW <= 0f || imgH <= 0f) return
+        baseScale = min(width / imgW, height / imgH)
+        scale = baseScale
+        offX = (width - imgW * scale) / 2f
+        offY = (height - imgH * scale) / 2f
+        followUser = false
+        clampOffsets()
+        invalidate()
+    }
+
     /** 把整条路线（没有路线就缩到目的地）装进视野。 */
     fun zoomToRoute() {
         if (width == 0 || height == 0) return
@@ -319,8 +406,9 @@ class CampusMapView @JvmOverloads constructor(
             }
         } else {
             val d = destination ?: return
-            minX = lonToImgX(d.lon); maxX = minX
-            minY = latToImgY(d.lat); maxY = minY
+            val p = CampusProjection.project(baseKind, d.lat, d.lon) ?: return
+            minX = p.first; maxX = minX
+            minY = p.second; maxY = minY
         }
         val pad = dp(56f)
         val availW = max(1f, width - pad * 2)
@@ -344,30 +432,32 @@ class CampusMapView @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        baseScale = min(w / IMG_W, h / IMG_H)
-        if (scale == 0f) {
+        if (w <= 0 || h <= 0 || imgW <= 0f || imgH <= 0f) return
+        baseScale = min(w / imgW, h / imgH)
+        if (!laidOut) {
+            laidOut = true
             scale = baseScale
+            offX = (w - imgW * scale) / 2f
+            offY = (h - imgH * scale) / 2f
         } else {
-            scale = scale.coerceIn(baseScale * MIN_ZOOM, baseScale * MAX_ZOOM)
+            scale = (if (scale > 0f) scale else baseScale)
+                .coerceIn(baseScale * MIN_ZOOM, baseScale * MAX_ZOOM)
+            // 尺寸变化后把整图中心留在视图中心，避免旋转屏幕后跑偏
+            offX = w / 2f - imgW * scale / 2f
+            offY = h / 2f - imgH * scale / 2f
         }
-        // 尺寸变化后把当前地图中心留在视图中心，避免旋转屏幕后跑偏
-        offX = w / 2f - IMG_W * scale / 2f
-        offY = h / 2f - IMG_H * scale / 2f
         clampOffsets()
     }
 
     // ---------------------------------------------------------------- 绘制
 
     override fun onDraw(canvas: Canvas) {
-        val bmp = mapBmp
         val w = width.toFloat()
         val h = height.toFloat()
-        if (bmp == null || w <= 0f || h <= 0f) {
-            canvas.drawColor(cBgFill)
-            return
-        }
         canvas.drawColor(cBgFill)
-        dstRect.set(offX, offY, offX + IMG_W * scale, offY + IMG_H * scale)
+        val bmp = mapBmp
+        if (bmp == null || w <= 0f || h <= 0f) return
+        dstRect.set(offX, offY, offX + imgW * scale, offY + imgH * scale)
         canvas.drawBitmap(bmp, null, dstRect, bitmapPaint)
 
         projectAll()
@@ -388,9 +478,9 @@ class CampusMapView @JvmOverloads constructor(
         // 已走段 = 起点到离我最近的路线点；没有定位就整条算「未走」
         var split = 0
         if (!myLat.isNaN()) {
+            val mx = myImgX * scale + offX
+            val my = myImgY * scale + offY
             var best = Float.MAX_VALUE
-            val mx = lonToImgX(myLon) * scale + offX
-            val my = latToImgY(myLat) * scale + offY
             for (i in 0 until n) {
                 val dx = routeScrX[i] - mx
                 val dy = routeScrY[i] - my
@@ -413,7 +503,7 @@ class CampusMapView @JvmOverloads constructor(
         }
         val ex = routeScrX[n - 1]
         val ey = routeScrY[n - 1]
-        dotPaint.color = Color.WHITE
+        dotPaint.color = cWhite
         canvas.drawCircle(ex, ey, dp(8f), dotPaint)
         dotPaint.color = cAccent
         canvas.drawCircle(ex, ey, dp(5f), dotPaint)
@@ -428,8 +518,8 @@ class CampusMapView @JvmOverloads constructor(
             for (i in 0 until n) labelShown[i] = true
         } else {
             for (i in 0 until n) labelShown[i] = false
-            val ox = if (!myLat.isNaN()) lonToImgX(myLon) * scale + offX else width / 2f
-            val oy = if (!myLat.isNaN()) latToImgY(myLat) * scale + offY else height / 2f
+            val ox = if (!myLat.isNaN()) myImgX * scale + offX else width / 2f
+            val oy = if (!myLat.isNaN()) myImgY * scale + offY else height / 2f
             nearestIdx.fill(-1)
             for (i in 0 until n) {
                 val dx = scrX[i] - ox
@@ -469,11 +559,11 @@ class CampusMapView @JvmOverloads constructor(
                 canvas.drawCircle(bx, by, dp(11f), haloPaint)
                 dotPaint.color = cAccent
                 canvas.drawCircle(bx, by, dp(5.5f), dotPaint)
-                ringPaint.color = Color.WHITE
+                ringPaint.color = cWhite
                 ringPaint.strokeWidth = dp(2f)
                 canvas.drawCircle(bx, by, dp(5.5f), ringPaint)
             } else {
-                dotPaint.color = Color.WHITE
+                dotPaint.color = cWhite
                 canvas.drawCircle(bx, by, dp(3.4f), dotPaint)
                 ringPaint.color = cTextSecondary
                 ringPaint.strokeWidth = dp(1.4f)
@@ -485,24 +575,35 @@ class CampusMapView @JvmOverloads constructor(
             if (!labelShown[i]) continue
             val bx = scrX[i]
             val by = scrY[i]
-            if (bx < -dp(60f) || by < -dp(30f) || bx > width + dp(60f) || by > height + dp(30f)) continue
+            if (bx < -dp(70f) || by < -dp(40f) || bx > width + dp(70f) || by > height + dp(40f)) continue
             val isDest = dest != null && buildings[i].id == dest.id
-            val paint = if (isDest) destLabelPaint else labelFillPaint
+            val textPaint = if (isDest) destTextPaint else labelFillPaint
             val name = buildings[i].name
-            val tw = paint.measureText(name)
-            var tx = bx + dp(7f)
-            if (tx + tw > width - dp(4f)) tx = bx - dp(7f) - tw
-            val ty = by - dp(6f)
-            labelStrokePaint.textSize = paint.textSize
-            canvas.drawText(name, tx, ty, labelStrokePaint)
-            canvas.drawText(name, tx, ty, paint)
+            val tw = textPaint.measureText(name)
+            val padX = dp(5f)
+            val padY = dp(2.5f)
+            val pillW = tw + padX * 2
+            val pillH = textPaint.textSize + padY * 2
+            var px = bx + dp(6f)
+            if (px + pillW > width - dp(3f)) px = bx - dp(6f) - pillW
+            var py = by - dp(5f) - pillH
+            if (py < dp(2f)) py = by + dp(5f)
+            labelRect.set(px, py, px + pillW, py + pillH)
+            val radius = dp(4f)
+            canvas.drawRoundRect(labelRect, radius, radius, labelPillPaint)
+            canvas.drawRoundRect(
+                labelRect, radius, radius,
+                if (isDest) destPillStrokePaint else labelPillStrokePaint
+            )
+            val baseline = py + padY - textPaint.ascent()
+            canvas.drawText(name, px + padX, baseline, textPaint)
         }
     }
 
     private fun drawMyLocation(canvas: Canvas) {
         if (myLat.isNaN() || myLon.isNaN()) return
-        val x = lonToImgX(myLon) * scale + offX
-        val y = latToImgY(myLat) * scale + offY
+        val x = myImgX * scale + offX
+        val y = myImgY * scale + offY
 
         if (myBearing >= 0f) {
             val r = dp(44f)
@@ -517,17 +618,17 @@ class CampusMapView @JvmOverloads constructor(
 
         haloPaint.color = (cBlue and 0x00FFFFFF) or (58 shl 24)
         canvas.drawCircle(x, y, dp(17f), haloPaint)
-        dotPaint.color = Color.WHITE
+        dotPaint.color = cWhite
         canvas.drawCircle(x, y, dp(8.5f), dotPaint)
         dotPaint.color = cBlue
         canvas.drawCircle(x, y, dp(6.5f), dotPaint)
-        ringPaint.color = Color.WHITE
+        ringPaint.color = cWhite
         ringPaint.strokeWidth = dp(2f)
         canvas.drawCircle(x, y, dp(6.5f), ringPaint)
     }
 
     private fun drawScaleBar(canvas: Canvas) {
-        val pxPerMeter = (scale * (IMG_W / lonSpanMeters)).toFloat()
+        val pxPerMeter = scale * imgPxPerMeter
         if (pxPerMeter <= 0f) return
         var meters = 200
         for (m in intArrayOf(20, 50, 100, 200)) {
@@ -545,6 +646,7 @@ class CampusMapView @JvmOverloads constructor(
 
     // ---------------------------------------------------------------- 内部
 
+    /** 图片像素 → 屏幕像素。 */
     private fun projectAll() {
         for (i in scrX.indices) {
             scrX[i] = imgX[i] * scale + offX
@@ -556,17 +658,85 @@ class CampusMapView @JvmOverloads constructor(
         }
     }
 
+    /** lat/lon → 图片像素（投影依赖 baseKind，切底图后必须重跑）。 */
+    private fun reprojectAll() {
+        for (i in imgX.indices) {
+            projectInto(buildings[i].lat, buildings[i].lon, imgX, imgY, i)
+        }
+        for (i in routeImgX.indices) {
+            projectInto(routeLat[i], routeLon[i], routeImgX, routeImgY, i)
+        }
+        if (!myLat.isNaN() && !myLon.isNaN()) {
+            val p = CampusProjection.project(baseKind, myLat, myLon)
+            if (p != null) {
+                myImgX = p.first
+                myImgY = p.second
+            }
+        }
+        computeImgPxPerMeter()
+    }
+
+    /**
+     * 比例尺用：把「图片横向 100 米」投影出来，量两端像素距离换算出 px/m。
+     * 单应矩阵会让不同位置的缩放略有差异，这里取外接框中心附近的值。
+     */
+    private fun computeImgPxPerMeter() {
+        val midLat = (CampusProjection.LAT_MIN + CampusProjection.LAT_MAX) / 2
+        val midLon = (CampusProjection.LON_MIN + CampusProjection.LON_MAX) / 2
+        val p0 = CampusProjection.project(baseKind, midLat, midLon) ?: return
+        val dLon = 100.0 / (111320.0 * cos(Math.toRadians(midLat)))
+        val p1 = CampusProjection.project(baseKind, midLat, midLon + dLon) ?: return
+        val dx = (p1.first - p0.first).toDouble()
+        val dy = (p1.second - p0.second).toDouble()
+        val distPx = hypot(dx, dy)
+        imgPxPerMeter = if (distPx > 1e-6) (distPx / 100.0).toFloat() else 0f
+    }
+
+    private fun projectInto(lat: Double, lon: Double, xs: FloatArray, ys: FloatArray, i: Int) {
+        val p = CampusProjection.project(baseKind, lat, lon)
+        xs[i] = p?.first ?: 0f
+        ys[i] = p?.second ?: 0f
+    }
+
+    private fun loadBase() {
+        val bmp = decodeBase(baseKind) ?: return
+        mapBmp = bmp
+        imgW = bmp.width.toFloat()
+        imgH = bmp.height.toFloat()
+        computeImgPxPerMeter()
+    }
+
+    private fun decodeBase(kind: String): Bitmap? {
+        val resId = when (kind) {
+            KIND_GUIDE -> R.drawable.campus_guide
+            KIND_INDEX -> R.drawable.campus_index
+            KIND_TRAFFIC -> R.drawable.campus_traffic
+            else -> R.drawable.campus_ortho
+        }
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeResource(resources, resId, bounds)
+            var sample = 1
+            val longSide = max(bounds.outWidth, bounds.outHeight)
+            while (longSide / sample > MAX_TEXTURE_SIDE) sample *= 2
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+            BitmapFactory.decodeResource(resources, resId, opts)
+        } catch (e: OutOfMemoryError) {
+            null
+        }
+    }
+
     private fun centerOnUser() {
         if (myLat.isNaN() || myLon.isNaN() || width == 0) return
         if (scale == 0f) scale = baseScale
-        offX = width / 2f - lonToImgX(myLon) * scale
-        offY = height * 0.58f - latToImgY(myLat) * scale
+        offX = width / 2f - myImgX * scale
+        offY = height * 0.58f - myImgY * scale
         clampOffsets()
     }
 
     private fun clampOffsets() {
-        val mw = IMG_W * scale
-        val mh = IMG_H * scale
+        val mw = imgW * scale
+        val mh = imgH * scale
         offX = if (mw <= width) (width - mw) / 2f else offX.coerceIn(width - mw, 0f)
         offY = if (mh <= height) (height - mh) / 2f else offY.coerceIn(height - mh, 0f)
     }
@@ -597,10 +767,4 @@ class CampusMapView @JvmOverloads constructor(
             }
         }
     }
-
-    private fun lonToImgX(lon: Double): Float =
-        ((lon - LON_MIN) / (LON_MAX - LON_MIN) * IMG_W).toFloat()
-
-    private fun latToImgY(lat: Double): Float =
-        ((LAT_MAX - lat) / (LAT_MAX - LAT_MIN) * IMG_H).toFloat()
 }

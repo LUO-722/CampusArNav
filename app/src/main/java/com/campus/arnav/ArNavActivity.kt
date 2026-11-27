@@ -21,6 +21,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import com.campus.arnav.core.CoordTransform
 import com.campus.arnav.core.HeadingProvider
 import com.campus.arnav.core.NavSession
 import com.campus.arnav.core.RouteRepository
@@ -64,7 +65,9 @@ class ArNavActivity : AppCompatActivity(), HeadingProvider.Listener {
             lastAccuracy = if (loc.hasAccuracy()) loc.accuracy else 50f
 
             val s = session ?: return
-            val st = s.update(loc.latitude, loc.longitude)
+            // GPS 原始值是 WGS-84；楼栋/路线数据是 GCJ-02，必须先转（否则整体偏 ~562 米，AR 永远判不到附近）
+            val gcj = CoordTransform.wgs2gcj(loc.latitude, loc.longitude)
+            val st = s.update(gcj.first, gcj.second)
             overlay.bearingDeg = st.bearingToTarget
             overlay.distanceMeters = st.distanceToTarget
             overlay.instruction = st.instruction
@@ -84,8 +87,8 @@ class ArNavActivity : AppCompatActivity(), HeadingProvider.Listener {
                     TAG,
                     String.format(
                         Locale.US,
-                        "loc provider=%s acc=%.1fm lat=%.6f lon=%.6f bearing=%.1f dist=%.1fm arrived=%s",
-                        loc.provider, lastAccuracy, loc.latitude, loc.longitude,
+                        "loc provider=%s acc=%.1fm lat=%.6f lon=%.6f (GCJ-02) bearing=%.1f dist=%.1fm arrived=%s",
+                        loc.provider, lastAccuracy, gcj.first, gcj.second,
                         st.bearingToTarget, st.distanceToTarget, st.arrived
                     )
                 )

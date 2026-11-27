@@ -4,8 +4,10 @@ import android.content.Context
 import android.graphics.Color
 import android.net.Uri
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -87,12 +89,27 @@ class ChatTab(
             gravity = Gravity.CENTER_VERTICAL
         }
         input.maxLines = 4
+        input.isFocusableInTouchMode = true
+        input.isCursorVisible = true
         input.imeOptions = EditorInfo.IME_ACTION_SEND
         input.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) {
                 send()
                 true
             } else false
+        }
+        // 一次点击就要能打字：ACTION_DOWN 就把焦点和键盘拿到手。
+        // 键盘弹起后本视图会补底部 padding 重新布局，输入行整体上移，
+        // 原来那次 ACTION_UP 会落到移动后的位置上，以前就表现为「点一下只是升起来，要再点一次才能输入」。
+        input.setOnTouchListener { v, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN && !v.hasFocus()) {
+                v.requestFocus()
+                v.post { showIme(v) }
+            }
+            false
+        }
+        input.setOnFocusChangeListener { v, hasFocus ->
+            if (hasFocus) v.post { showIme(v) }
         }
         row.addView(button(ctx, "图", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
             setOnClickListener { pickImage() }
@@ -101,6 +118,13 @@ class ChatTab(
         row.addView(button(ctx, "发送", ctx.color(R.color.accent), Color.parseColor("#FFFFFF")).apply {
             setOnClickListener { send() }
         }, LinearLayout.LayoutParams(ctx.dp(64), ctx.dp(42)).apply { leftMargin = ctx.dp(6) })
+        // 整条输入行都可点：点空白处也直接进输入态，不用精确点到输入框内部
+        row.isClickable = true
+        row.setOnClickListener {
+            input.requestFocus()
+            input.setSelection(input.text?.length ?: 0)
+            showIme(input)
+        }
         addView(row)
 
         val saved = ChatStore.recent(ctx, 30)
@@ -115,6 +139,12 @@ class ChatTab(
         refreshProvider()
         scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
         bindImeInsets()
+    }
+
+    /** 明确地弹一次键盘：不依赖系统「点一下就自动弹」的时序，避免第一次点击被重排吃掉。 */
+    private fun showIme(target: android.view.View) {
+        val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
+        imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
     }
 
     /**
@@ -148,7 +178,14 @@ class ChatTab(
             val extra = if (fullScreen) (ime - below).coerceAtLeast(0) else 0
             if (extra != imeExtra) {
                 imeExtra = extra
+                // 重新布局会让输入框短暂丢焦点（看起来就是「点了没进去」），这里把焦点和光标接回去
+                val hadFocus = input.hasFocus()
+                val caret = input.selectionStart.coerceAtLeast(0)
                 v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, padBottom + extra)
+                if (hadFocus && !input.hasFocus()) {
+                    input.requestFocus()
+                    input.setSelection(caret.coerceAtMost(input.text?.length ?: 0))
+                }
                 if (extra > 0) scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
             }
             insets

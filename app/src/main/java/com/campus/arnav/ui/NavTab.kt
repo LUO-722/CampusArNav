@@ -90,9 +90,9 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
                 (guideRawRemain - guideSpeedMps * dt).coerceAtLeast(0.0)
             } else guideRawRemain
             guideShownRemain = if (guideShownRemain < 0) predicted
-            else guideShownRemain + (predicted - guideShownRemain) * 0.45
+            else guideShownRemain + (predicted - guideShownRemain) * 0.6
             renderGuide()
-            guideHandler.postDelayed(this, 400L)
+            guideHandler.postDelayed(this, 200L)
         }
     }
 
@@ -563,7 +563,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         guideArrived = remain < 12
         renderGuide()
         guideHandler.removeCallbacks(guideTicker)
-        if (!guideArrived) guideHandler.postDelayed(guideTicker, 400L)
+        if (!guideArrived) guideHandler.postDelayed(guideTicker, 200L)
     }
 
     /** 把当前（可能是插值出来的）剩余距离画到进度条上：细化到 5 米，避免数字蹦跳。 */

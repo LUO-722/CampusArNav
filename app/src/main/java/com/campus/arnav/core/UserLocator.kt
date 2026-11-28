@@ -64,8 +64,8 @@ object UserLocator {
     /** 精度超过这个值的点直接丢：校园里 >100m 基本是网络基站粗定位，画在地图上比不画更误导。 */
     private const val MAX_ACCURACY_M = 100f
 
-    private const val MIN_TIME_MS = 1000L
-    private const val MIN_DISTANCE_M = 3f
+    private const val MIN_TIME_MS = 500L
+    private const val MIN_DISTANCE_M = 0f
 
     /** 低于这个速度，GPS 的 bearing 字段不可信（散步 1.4m/s，跑步 3m/s）。 */
     private const val BEARING_MIN_SPEED_MPS = 0.8f

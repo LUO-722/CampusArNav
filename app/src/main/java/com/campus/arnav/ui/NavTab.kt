@@ -73,6 +73,29 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     private var destName: String? = null
     private var path: CampusPath? = null
 
+    /** 实时测距：用上一次定位的「原始剩余距离 + 速度」做 0.5 秒插值，数字连续下降而不是一跳一跳。 */
+    private var guideRawRemain = -1.0
+    private var guideShownRemain = -1.0
+    private var guideSpeedMps = 0.0
+    private var guideLastAt = 0L
+    private var guideOffRoute = 0.0
+    private var guideArrived = false
+    private val guideHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val guideTicker = object : Runnable {
+        override fun run() {
+            if (destName == null || routePoints.size < 2 || guideRawRemain < 0) return
+            val dt = ((System.currentTimeMillis() - guideLastAt).coerceAtLeast(0L)) / 1000.0
+            // 只有「在动」时才推算（速度 <0.4 m/s 视为站着，避免数字乱跳）
+            val predicted = if (guideSpeedMps >= 0.4) {
+                (guideRawRemain - guideSpeedMps * dt).coerceAtLeast(0.0)
+            } else guideRawRemain
+            guideShownRemain = if (guideShownRemain < 0) predicted
+            else guideShownRemain + (predicted - guideShownRemain) * 0.45
+            renderGuide()
+            guideHandler.postDelayed(this, 400L)
+        }
+    }
+
     /** 卫星实景底图只解一次，失败就保持纯矢量模式。 */
     private var baseTried = false
     private fun ensureBaseMap() {
@@ -486,7 +509,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
     private fun onFix(fix: Fix) {
         val moved = haveFix &&
-            GeoUtils.distanceMeters(fixLat, fixLon, fix.lat, fix.lon) > 15.0
+            GeoUtils.distanceMeters(fixLat, fixLon, fix.lat, fix.lon) > 8.0
         fixLat = fix.lat
         fixLon = fix.lon
         fixBearing = fix.bearing ?: -1f
@@ -499,7 +522,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         fromMe = true
         setStart("我的位置")
         val dest = destName ?: return
-        updateGuideFrom(fix.lat, fix.lon)
+        updateGuideFrom(fix.lat, fix.lon, fix.speedMps)
         // 跟随模式：地图跟着蓝点走，不重算路线（以前每个定位点都重排页面）
         if (following) {
             map.zoomTo(fix.lat, fix.lon, map.currentScale())
@@ -509,9 +532,8 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         if (moved) plan(dest, refit = false)
     }
 
-    /** 用当前定位更新「剩余距离 · 下一步」。 */
-    private fun updateGuideFrom(lat: Double, lon: Double) {
-        val gt = guideText ?: return
+    /** 用当前定位更新「剩余距离 · 下一步」。speedMps 来自 GPS，用于 0.5 秒插值。 */
+    private fun updateGuideFrom(lat: Double, lon: Double, speedMps: Float? = null) {
         val pts = routePoints
         if (pts.size < 2) return
         var bestIdx = 0
@@ -527,15 +549,46 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         for (i in bestIdx until pts.size - 1) {
             remain += GeoUtils.distanceMeters(pts[i].first, pts[i].second, pts[i + 1].first, pts[i + 1].second)
         }
+        guideOffRoute = bestD
+        // GPS 速度平滑：>8 m/s 视为骑行/车载噪音，按走路上限处理；走停之间平滑衰减
+        val s = speedMps?.toDouble() ?: -1.0
+        guideSpeedMps = when {
+            s >= 0.2 -> if (guideSpeedMps <= 0.0) s.coerceAtMost(3.0) else guideSpeedMps * 0.6 + s * 0.4
+            else -> guideSpeedMps * 0.5
+        }.coerceIn(0.0, 3.0)
+        if (guideSpeedMps < 0.4) guideSpeedMps = 0.0
+        guideRawRemain = remain
+        if (guideShownRemain < 0 || remain > guideShownRemain + 40) guideShownRemain = remain
+        guideLastAt = System.currentTimeMillis()
+        guideArrived = remain < 12
+        renderGuide()
+        guideHandler.removeCallbacks(guideTicker)
+        if (!guideArrived) guideHandler.postDelayed(guideTicker, 400L)
+    }
+
+    /** 把当前（可能是插值出来的）剩余距离画到进度条上：细化到 5 米，避免数字蹦跳。 */
+    private fun renderGuide() {
+        val gt = guideText ?: return
         val dest = destName ?: return
-        val min = (remain / 80.0).coerceAtLeast(1.0).toInt()
-        gt.text = if (bestD > 60) {
-            "还在路线外约 ${bestD.toInt()} 米；剩余 ${remain.toInt()} 米（约 $min 分钟）到 $dest"
-        } else if (remain < 25) {
-            "已到达 $dest 附近（剩余 ${remain.toInt()} 米）"
-        } else {
-            "剩余 ${remain.toInt()} 米 · 约 $min 分钟到 $dest"
+        if (guideRawRemain < 0) return
+        val remain = if (guideShownRemain < 0) guideRawRemain else guideShownRemain
+        // 近处按 1 米跳（精细），远处按 5 米跳（不闪）
+        val step = if (remain < 50.0) 1.0 else 5.0
+        val shown = (Math.round(remain / step) * step).toInt().coerceAtLeast(0)
+        val min = Math.ceil(remain / 80.0).toInt().coerceAtLeast(1)
+        gt.text = when {
+            remain < 12 -> "已到达 $dest"
+            guideOffRoute > 60 -> "偏离路线约 ${guideOffRoute.toInt()} 米 · 剩余 $shown 米到 $dest"
+            else -> "剩余 $shown 米 · 约 $min 分钟到 $dest"
         }
+    }
+
+    private fun stopGuideTicker() {
+        guideHandler.removeCallbacks(guideTicker)
+        guideRawRemain = -1.0
+        guideShownRemain = -1.0
+        guideSpeedMps = 0.0
+        guideArrived = false
     }
 
     private fun clearRoute() {
@@ -543,6 +596,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         path = null
         following = false
         UserLocator.stop()
+        stopGuideTicker()
         fromMe = false
         haveFix = false
         fixBearing = -1f
@@ -749,6 +803,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
     override fun onDetachedFromWindow() {
         UserLocator.stop()
+        stopGuideTicker()
         super.onDetachedFromWindow()
     }
 

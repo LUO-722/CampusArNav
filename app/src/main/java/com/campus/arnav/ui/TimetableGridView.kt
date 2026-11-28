@@ -350,21 +350,20 @@ class TimetableGridView @JvmOverloads constructor(
                 )
             }
 
-            if (acts != null && acts.isNotEmpty()) drawActivityBadge(canvas, rect, acts)
+            if (acts != null && acts.isNotEmpty()) {
+                drawActivityBars(canvas, acts)
+                drawActivityBadge(canvas, rect, acts)
+            }
         }
 
-        // 不重叠的活动：仍按真实时间画虚线块，一眼区分「临时日程」
+        // 不重叠的活动：按真实时间比例画虚线块（10:00—11:30 就只占 90 分钟那段，不再被拉成整节）
         for (a in free) {
-            val wd = ScheduleLogic.weekdayOf(a.date)
-            if (wd !in 1..7) continue
-            val sp = ScheduleLogic.periodForTime(a.startTime, a.date).coerceIn(1, 12)
-            val epRaw = ScheduleLogic.periodForTime(a.endTime, a.date).coerceIn(1, 12)
-            val ep = if (epRaw < sp) sp else epRaw
-            val x = periodW + dayW * (wd - 1) + 2 * density
-            val y = headerH + rowH * (sp - 1) + 2 * density
-            val w = dayW - 4 * density
-            val h = rowH * (ep - sp + 1) - 4 * density
-            blockRect.set(x, y, x + w, y + h)
+            val rect = activityRect(a) ?: continue
+            blockRect.set(rect)
+            val x = rect.left
+            val y = rect.top
+            val w = rect.width()
+            val h = rect.height()
             fillPaint.color = if (a.conflict) 0xFFFFE7EE.toInt() else cHolidayBg
             canvas.drawRoundRect(blockRect, 10 * density, 10 * density, fillPaint)
             activityStroke.pathEffect = DashPathEffect(floatArrayOf(3 * density, 2 * density), 0f)
@@ -395,7 +394,7 @@ class TimetableGridView @JvmOverloads constructor(
                 canvas.drawText(label, badgeRect.centerX(), top + bh * 0.75f, badgeTextPaint)
             }
 
-            if (h > 40 * density) {
+            if (h > 30 * density) {
                 drawActivityTime(canvas, blockRect, a.startTime, a.endTime)
             }
         }
@@ -452,6 +451,20 @@ class TimetableGridView @JvmOverloads constructor(
         val bottom = endRaw.coerceAtLeast(top + 16 * density).coerceAtMost(gridBottom)
         val x = periodW + dayW * (wd - 1) + 2 * density
         return RectF(x, top, x + dayW - 4 * density, bottom)
+    }
+
+    /** 被课程压住的活动：在该列右侧画一根「按真实时间比例」的细竖条（3dp），一眼看出占了哪段时间。 */
+    private fun drawActivityBars(canvas: Canvas, list: List<Activity>) {
+        for (a in list) {
+            val r = activityRect(a) ?: continue
+            val bw = 3 * density
+            barRect.set(r.right - bw, r.top, r.right, r.bottom)
+            activityStroke.pathEffect = null
+            activityStroke.style = Paint.Style.FILL
+            activityStroke.color = if (a.conflict) 0xCCD6455F.toInt() else 0xCCE8447A.toInt()
+            canvas.drawRoundRect(barRect, bw / 2, bw / 2, activityStroke)
+            activityStroke.style = Paint.Style.STROKE
+        }
     }
 
     /** 在课程块右上角画「＋N」角标：只占顶部一条，课名已下移让位，点角标看活动详情。 */

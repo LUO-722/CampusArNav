@@ -1,10 +1,10 @@
-# 科文智嘉（CampusArNav 五栏版）0.24.5
+# 科文智嘉（CampusArNav 五栏版）0.24.7
 
 在原有 AR 校园导航 APK 雏形上增加的五栏「智嘉」校园助手。包名仍是 `com.campus.arnav`。**当前交付使用 debug 签名，可与 0.20.x 及之后的包互相覆盖安装**；若换成发布签名，则需先卸载再装（卸载会清掉本机课表/聊天/登录态，课表可从教务重新同步）。
 
 ## 安装包
 
-- `E:\AndroidProjects\CampusArNav\科文智嘉-0.24.5.apk`（debug 签名（与 0.20.1 相同，可直接覆盖安装，不必卸载）；versionName 0.24.5 / versionCode 80；体积 25,069,351 字节（≈23.9 MB）；包含 ML Kit 中文 OCR 模型，只留 arm64 一份 so；已移除第三方地图 SDK）
+- `E:\AndroidProjects\CampusArNav\科文智嘉-0.24.7.apk`（debug 签名（与 0.20.1 相同，可直接覆盖安装，不必卸载）；versionName 0.24.7 / versionCode 82；体积 25,069,351 字节（≈23.9 MB）；包含 ML Kit 中文 OCR 模型，只留 arm64 一份 so；已移除第三方地图 SDK）
 - 构建产物：`app\build\outputs\apk\debug\app-debug.apk`
 
 ## 五个页面

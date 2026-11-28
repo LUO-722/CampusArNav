@@ -917,12 +917,12 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
     }
 
     private fun importDialog() {
-        val modes = listOf("教务/表格文本（每行：课程|周几|起节|止节|周次|地点）", "JSON 课表", "取消")
+        val modes = listOf("教务/表格文本（导入会先清空旧课表）", "JSON 课表（导入会先清空旧课表）", "取消")
         choose(ctx, "导入课表", modes) { which ->
             when (which) {
                 0 -> inputForm(
                     ctx, "粘贴课表文本",
-                    listOf("每行一条，例：高等数学|一|1|2|1-16|格物楼101" to ""),
+                    listOf("每行一条，例：高等数学|一|1|2|1-16|格物楼101（会先清空旧课表）" to ""),
                     multiline = true
                 ) { v ->
                     val n = CourseStore.importLines(ctx, v.firstOrNull().orEmpty())
@@ -931,7 +931,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                 }
                 1 -> inputForm(
                     ctx, "粘贴 JSON",
-                    listOf("字段：name/weekday/start/end/weeks/location；可含 activities" to ""),
+                    listOf("字段：name/weekday/start/end/weeks/location；可含 activities（会先清空旧课表）" to ""),
                     multiline = true
                 ) { v ->
                     val imp = CourseStore.importJson(ctx, v.firstOrNull().orEmpty())

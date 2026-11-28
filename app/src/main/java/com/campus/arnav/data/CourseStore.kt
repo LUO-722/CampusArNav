@@ -252,7 +252,7 @@ object CourseStore {
      */
     data class JsonImport(val courses: Int, val activities: Int)
 
-    fun importJson(ctx: Context, text: String): JsonImport {
+    fun importJson(ctx: Context, text: String, replace: Boolean = true): JsonImport {
         val t = text.trim()
         val coursesArr: JSONArray
         val activitiesArr: JSONArray
@@ -268,6 +268,8 @@ object CourseStore {
         } catch (e: Exception) {
             return JsonImport(-1, 0)
         }
+        // 导入是「覆盖」语义：先把旧课表（含示例课、以前同步/手工加的）全部清掉，避免新旧混在一起
+        if (replace) clearCourses(ctx)
         var n = 0
         val seenCourses = courses(ctx).map { courseKey(it) }.toMutableSet()
         for (i in 0 until coursesArr.length()) {
@@ -378,11 +380,14 @@ object CourseStore {
      * 2) 教务导出/Excel 复制：`课程[TAB]周一[TAB]1-2节[TAB]1-16周[TAB]格物101`
      * 3) 空格/逗号分隔的同类字段；也兼容“周一第1-2节”这种合并写法。
      */
-    fun importLines(ctx: Context, text: String): Int {
+    fun importLines(ctx: Context, text: String, replace: Boolean = true): Int {
+        // 先解析一遍：只有真的解析出课程才清空旧课表，格式错不会误删
+        val parsedLines = text.split("\n", "；", ";").mapNotNull { parseCourseLine(it) }
+        if (parsedLines.isEmpty()) return 0
+        if (replace) clearCourses(ctx)
         var n = 0
         val seen = courses(ctx).map { courseKey(it) }.toMutableSet()
-        for (line in text.split("\n", "；", ";")) {
-            val parsed = parseCourseLine(line) ?: continue
+        for (parsed in parsedLines) {
             val key = "${parsed.name}|${parsed.weekday}|${parsed.start}|${parsed.end}|${parsed.weeks}"
             if (!seen.add(key)) continue
             addCourse(
@@ -441,12 +446,10 @@ object CourseStore {
                 }
             }
 
-            // ② 删旧课与其停课记录（不走 deleteCourse：标记由本方法负责恢复）
-            d.delete("courses", "source=?", arrayOf("jwxt"))
-            if (oldIds.isNotEmpty()) {
-                val marks = oldIds.joinToString(",") { "?" }
-                d.delete("course_skips", "course_id IN ($marks)", oldIds.map { it.toString() }.toTypedArray())
-            }
+            // ② 教务课表是权威数据：清空全部旧课程（示例课、以前导入的、手工加的）与其停课标记。
+            //    被跳过的日期已在 ① 里按身份键记下，插完新课程会挂回去。
+            d.delete("courses", null, null)
+            d.delete("course_skips", null, null)
 
             // ③ 插入新课程，同时按身份键收集新课程 id（同一身份键可能对应多行，全部记下）
             val existing = courses(ctx)

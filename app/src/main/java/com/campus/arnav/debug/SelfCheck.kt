@@ -147,6 +147,16 @@ object SelfCheck {
                 !ScheduleLogic.validClock("24:00") && !ScheduleLogic.validClock("8点") &&
                 !ScheduleLogic.validClock("08:60")
         }
+        check("手输时间归一") {
+            ScheduleLogic.normalizeClock("9:00") == "09:00" &&
+                ScheduleLogic.normalizeClock("09：00") == "09:00" &&
+                ScheduleLogic.normalizeClock("900") == "09:00" &&
+                ScheduleLogic.normalizeClock("1530") == "15:30" &&
+                ScheduleLogic.normalizeClock(" 8.05 ") == "08:05" &&
+                ScheduleLogic.normalizeClock("24:00") == null &&
+                ScheduleLogic.normalizeClock("9:70") == null &&
+                ScheduleLogic.normalizeClock("abc") == null
+        }
         check("知识库可读") {
             val s = KbIndex.selfCheck(ctx)
             s.contains("知识库") && s.contains("篇")

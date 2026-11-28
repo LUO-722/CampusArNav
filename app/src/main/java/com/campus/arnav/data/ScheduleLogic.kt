@@ -142,6 +142,32 @@ object ScheduleLogic {
         return h in 0..23 && mi in 0..59
     }
 
+    /**
+     * 把用户手输的时间归一成 HH:mm：
+     * 支持 "9:00"、"09：00"（全角冒号）、"900"、"0900"、"9.00"、"15:30" 等写法；
+     * 认不出或越界返回 null。录入活动/课程时统一走这里，避免库里混进 "9:0" 这种值。
+     */
+    fun normalizeClock(raw: String): String? {
+        var s = raw.trim()
+            .replace('：', ':')
+            .replace('．', '.')
+            .replace(" ", "")
+        if (s.isEmpty()) return null
+        var h: Int
+        var mi: Int
+        val sep = Regex("^(\\d{1,2})[:.](\\d{1,2})$").find(s)
+        if (sep != null) {
+            h = sep.groupValues[1].toIntOrNull() ?: return null
+            mi = sep.groupValues[2].toIntOrNull() ?: return null
+        } else {
+            val digits = Regex("^\\d{3,4}$").find(s) ?: return null
+            val d = digits.value
+            h = d.dropLast(2).toIntOrNull() ?: return null
+            mi = d.takeLast(2).toIntOrNull() ?: return null
+        }
+        if (h !in 0..23 || mi !in 0..59) return null
+        return fromMinutes(h * 60 + mi)
+    }
     fun fromMinutes(m: Int): String =
         String.format(Locale.US, "%02d:%02d", m / 60, m % 60)
 

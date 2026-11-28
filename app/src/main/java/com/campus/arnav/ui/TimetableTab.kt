@@ -873,19 +873,28 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                 ctx.toast("日期格式应为 yyyy-MM-dd")
                 return@inputForm
             }
-            if (!validTime(st) || !validTime(en)) {
-                ctx.toast("时间格式应为 HH:mm")
+            // 手输时间统一归一成 HH:mm（支持 9:00 / 09：00 / 900 / 9.00 等写法）
+            val stNorm = if (st.isBlank()) "" else ScheduleLogic.normalizeClock(st)
+            if (st.isNotBlank() && stNorm == null) {
+                ctx.toast("开始时间认不出来，请按 09:00 这样填")
                 return@inputForm
             }
-            if (st.isNotBlank() && en.isNotBlank() && ScheduleLogic.toMinutes(en) <= ScheduleLogic.toMinutes(st)) {
+            val enNorm = if (en.isBlank()) "" else ScheduleLogic.normalizeClock(en)
+            if (en.isNotBlank() && enNorm == null) {
+                ctx.toast("结束时间认不出来，请按 10:30 这样填")
+                return@inputForm
+            }
+            if (stNorm != null && enNorm != null &&
+                ScheduleLogic.toMinutes(enNorm) <= ScheduleLogic.toMinutes(stNorm)
+            ) {
                 ctx.toast("结束时间要晚于开始时间")
                 return@inputForm
             }
             val draft = com.campus.arnav.data.ActivityDraft(
                 title = title,
                 date = ScheduleLogic.formatDate(parsed),
-                startTime = st,
-                endTime = en,
+                startTime = stNorm.orEmpty(),
+                endTime = enNorm.orEmpty(),
                 location = v.getOrNull(4).orEmpty().trim(),
                 organizer = "",
                 note = v.getOrNull(5).orEmpty().trim()
@@ -903,12 +912,24 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         }
     }
 
+    /** 详情里统一显示 HH:mm；没填时间就写「时间待定」。 */
+    private fun clockSpan(start: String, end: String): String {
+        val s = ScheduleLogic.normalizeClock(start) ?: start
+        val e = ScheduleLogic.normalizeClock(end) ?: end
+        return when {
+            s.isBlank() && e.isBlank() -> "时间待定"
+            e.isBlank() -> s
+            s.isBlank() -> "$e 结束"
+            else -> "$s-$e"
+        }
+    }
+
     private fun showActivity(a: Activity) {
         AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
             .setTitle(a.title)
             .setMessage(
                 buildString {
-                    append("${a.date}  ${a.startTime}-${a.endTime}\n")
+                    append("${a.date}  ${clockSpan(a.startTime, a.endTime)}\n")
                     if (a.location.isNotBlank()) append("地点：${a.location}\n")
                     if (a.note.isNotBlank()) append(a.note)
                 }
@@ -984,13 +1005,21 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                 ctx.toast("日期格式应为 yyyy-MM-dd")
                 return@inputForm
             }
-            if (!validTime(st) || !validTime(en) || (st.isNotBlank() && en.isNotBlank() && ScheduleLogic.toMinutes(en) <= ScheduleLogic.toMinutes(st))) {
-                ctx.toast("时间格式应为 HH:mm，且结束晚于开始")
+            val stNorm = if (st.isBlank()) "" else ScheduleLogic.normalizeClock(st)
+            val enNorm = if (en.isBlank()) "" else ScheduleLogic.normalizeClock(en)
+            if ((st.isNotBlank() && stNorm == null) || (en.isNotBlank() && enNorm == null)) {
+                ctx.toast("时间认不出来，请按 09:00 这样填")
+                return@inputForm
+            }
+            if (stNorm != null && enNorm != null &&
+                ScheduleLogic.toMinutes(enNorm) <= ScheduleLogic.toMinutes(stNorm)
+            ) {
+                ctx.toast("结束时间要晚于开始时间")
                 return@inputForm
             }
             val date = ScheduleLogic.formatDate(parsed)
             val draft = com.campus.arnav.data.ActivityDraft(
-                title = title, date = date, startTime = st, endTime = en,
+                title = title, date = date, startTime = stNorm.orEmpty(), endTime = enNorm.orEmpty(),
                 location = v.getOrNull(4).orEmpty().trim(),
                 organizer = "",
                 note = v.getOrNull(5).orEmpty().trim()
@@ -999,11 +1028,6 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
             refresh()
             ctx.toast("已保存修改")
         }
-    }
-
-    private fun validTime(s: String): Boolean {
-        if (s.isBlank()) return true
-        return ScheduleLogic.validClock(s)
     }
 
     /** 导出当前课表 + 活动为 JSON（可再粘贴回「导入课表 → JSON」），走系统分享面板。 */

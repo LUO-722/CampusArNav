@@ -498,8 +498,8 @@ class TimetableGridView @JvmOverloads constructor(
      * （起始时间 / 结束时间），保证不会出现「16:3」这种被裁断的中间态。
      */
     private fun drawActivityTime(canvas: Canvas, block: RectF, start: String, end: String) {
-        val s = start.ifBlank { "--:--" }
-        val e = end.ifBlank { "--:--" }
+        val s = if (start.isBlank()) "--:--" else (ScheduleLogic.normalizeClock(start) ?: start)
+        val e = if (end.isBlank()) "--:--" else (ScheduleLogic.normalizeClock(end) ?: end)
         val one = "$s-$e"
         val avail = (block.width() - 6 * density).coerceAtLeast(10 * density)
         activityTimePaint.textSize = 8.5f * density

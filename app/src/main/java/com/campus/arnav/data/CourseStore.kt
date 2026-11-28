@@ -380,29 +380,64 @@ object CourseStore {
      * 2) 教务导出/Excel 复制：`课程[TAB]周一[TAB]1-2节[TAB]1-16周[TAB]格物101`
      * 3) 空格/逗号分隔的同类字段；也兼容“周一第1-2节”这种合并写法。
      */
-    fun importLines(ctx: Context, text: String, replace: Boolean = true): Int {
-        // 先解析一遍：只有真的解析出课程才清空旧课表，格式错不会误删
-        val parsedLines = text.split("\n", "；", ";").mapNotNull { parseCourseLine(it) }
-        if (parsedLines.isEmpty()) return 0
+    /** 导入结果（给界面做「导入了几门 / 第几行没认出来」的提示） */
+    data class ImportReport(
+        val imported: Int,
+        val skipped: Int,
+        val firstBadLine: String,
+        val badLineNo: Int
+    )
+
+    /**
+     * 带诊断的文本导入：
+     * - 空行、表头行（课程名/星期/节次）自动跳过，不算错误
+     * - 每行都要过一个「能不能认出星期 + 节次」的闸门，认不出就记下来行号和原文
+     * - **一行都没认出来时绝不动旧课表**；认出至少一门才清空旧课表再写入
+     */
+    fun importLinesDetailed(ctx: Context, text: String, replace: Boolean = true): ImportReport {
+        val normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        val rawLines = normalized.split("\n")
+        val parsed = ArrayList<ParsedLine>()
+        var skipped = 0
+        var firstBad = ""
+        var firstBadNo = 0
+        for (idx in rawLines.indices) {
+            val t = rawLines[idx].trim()
+            if (t.isEmpty()) continue
+            if (isHeaderLine(t)) continue
+            val one = parseCourseLine(t)
+            if (one == null) {
+                skipped++
+                if (firstBad.isEmpty()) {
+                    firstBad = t.take(80)
+                    firstBadNo = idx + 1
+                }
+            } else {
+                parsed.add(one)
+            }
+        }
+        if (parsed.isEmpty()) return ImportReport(0, skipped, firstBad, firstBadNo)
         if (replace) clearCourses(ctx)
         var n = 0
         val seen = courses(ctx).map { courseKey(it) }.toMutableSet()
-        for (parsed in parsedLines) {
-            val key = "${parsed.name}|${parsed.weekday}|${parsed.start}|${parsed.end}|${parsed.weeks}"
+        for (one in parsed) {
+            val key = "${one.name}|${one.weekday}|${one.start}|${one.end}|${one.weeks}"
             if (!seen.add(key)) continue
             addCourse(
-                ctx, parsed.name,
-                location = parsed.location,
-                weekday = parsed.weekday, startPeriod = parsed.start, endPeriod = parsed.end,
-                weeks = parsed.weeks, color = palette[n % palette.size],
+                ctx, one.name,
+                location = one.location,
+                weekday = one.weekday, startPeriod = one.start, endPeriod = one.end,
+                weeks = one.weeks, color = palette[n % palette.size],
                 source = "import"
             )
             n++
         }
-        return n
+        return ImportReport(n, skipped, firstBad, firstBadNo)
     }
 
-    /** 停课标记的身份键：课程标题 + 周几 + 起始节（重新同步后课程 _id 会变，靠它把标记挂回去）。 */
+    fun importLines(ctx: Context, text: String, replace: Boolean = true): Int =
+        importLinesDetailed(ctx, text, replace).imported
+
     private fun skipKey(name: String, weekday: Int, startPeriod: Int) = "$name|$weekday|$startPeriod"
 
     /**
@@ -587,7 +622,7 @@ object CourseStore {
 
     /** 纯函数解析一行课程；无法识别时返回 null。 */
     fun parseCourseLine(line: String): ParsedLine? {
-        val raw = fullToHalf(line.trim())
+        val raw = fullToHalf(cleanInput(line))
         if (raw.isEmpty() || raw.startsWith("#")) return null
         val expanded = raw.replace(
             Regex("(星期|周|礼拜)([一二三四五六日天1-7])(?:第)?(\\d{1,2})[-~—至到](\\d{1,2})节?"),
@@ -653,16 +688,76 @@ object CourseStore {
         for (ch in s) append(if (ch in '０'..'９') ('0' + (ch - '０')) else ch)
     }
 
-    private fun splitFields(t: String): List<String> = when {
-        t.contains("|") || t.contains("｜") -> t.split("|", "｜")
-        t.contains("\t") -> t.split("\t")
-        t.contains(",") || t.contains("，") -> t.split(",", "，")
-        Regex("\\s{2,}").containsMatchIn(t) -> t.split(Regex("\\s{2,}"))
-        else -> t.split(Regex("\\s+"))
-    }.map { it.trim() }.filter { it.isNotEmpty() }
+    /**
+     * 只做「清洗」：去 BOM、零宽字符、不换行空格。
+     * 注意**不能**在这里剥引号 —— Excel 导出的 CSV 一行里有多组引号
+     * （"思想道德与法治","周五",...），整行去引号会把分隔符一起吃掉。
+     * 引号由 splitFields 按字段处理；只有整行被一对引号包住时才剥一次。
+     */
+    private fun cleanInput(s: String): String {
+        var t = s.replace("\uFEFF", "").replace("\u200B", "").replace("\u00A0", " ").trim()
+        val quotes = t.count { it == '"' || it == '\u201C' || it == '\u201D' }
+        if (quotes == 2) t = stripQuotes(t)
+        return t
+    }
+
+    private fun stripQuotes(s: String): String {
+        var t = s.trim()
+        val pairs = listOf("\u201C" to "\u201D", "\"" to "\"", "'" to "'", "\u300C" to "\u300D", "\u300E" to "\u300F")
+        var changed = true
+        var guard = 0
+        while (changed && t.length >= 2 && guard++ < 4) {
+            changed = false
+            for (pr in pairs) {
+                if (t.startsWith(pr.first) && t.endsWith(pr.second)) {
+                    t = t.substring(pr.first.length, t.length - pr.second.length).trim()
+                    changed = true
+                }
+            }
+        }
+        return t.replace("\uFEFF", "").replace("\u200B", "").trim()
+    }
+
+    /** 表头行（课程名 / 星期 / 节次表头）当作跳过，不算错误 */
+    private fun isHeaderLine(s: String): Boolean {
+        if (s.any { it.isDigit() }) return false
+        return s.contains("课程名称") || s.contains("课程名") ||
+            (s.contains("课程") && s.contains("星期")) ||
+            (s.contains("星期") && s.contains("节次"))
+    }
+
+    /**
+     * 切分一行：支持 | 制表符 英文逗号 中文逗号 分号，**且认得 CSV 的引号**
+     * （Excel 导出的 CSV 里 "高等数学,实验" 这种带逗号的字段也能正确切开）
+     */
+    private fun splitFields(t: String): List<String> {
+        val out = ArrayList<String>()
+        val sb = StringBuilder()
+        var quote = false
+        for (ch in t) {
+            if (ch == '"' || ch == '\u201C' || ch == '\u201D') {
+                quote = !quote
+                continue
+            }
+            if (!quote && (ch == '|' || ch == '\t' || ch == ',' || ch == '\uFF0C' ||
+                    ch == ';' || ch == '\uFF1B')
+            ) {
+                out.add(sb.toString())
+                sb.setLength(0)
+            } else {
+                sb.append(ch)
+            }
+        }
+        out.add(sb.toString())
+        val cleaned = out.map { stripQuotes(it) }.filter { it.isNotEmpty() }
+        if (cleaned.size >= 2) return cleaned
+        val bySpace = t.split(Regex("\\s+")).map { stripQuotes(it) }.filter { it.isNotEmpty() }
+        return if (bySpace.size >= 2) bySpace else cleaned
+    }
 
     private fun parseWeekday(s: String): Int? {
-        val t = fullToHalf(s.trim())
+        val t = fullToHalf(stripQuotes(s.trim()))
+            .replace("礼拜", "")
             .replace("星期", "").replace("周", "").replace("礼拜", "")
             .trim()
         val n = t.toIntOrNull()

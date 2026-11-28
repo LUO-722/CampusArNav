@@ -916,6 +916,32 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         ctx.startActivity(Intent.createChooser(send, "导出 / 分享课表与活动"))
     }
 
+
+    /** 导入结果反馈：成功给条数，失败把「第几行、那一行长什么样」摊开，避免只说一句“格式不对” */
+    private fun showImportReport(rep: CourseStore.ImportReport) {
+        when {
+            rep.imported > 0 && rep.skipped == 0 ->
+                ctx.toast("已导入 ${rep.imported} 门课程（旧课表已清空）")
+            rep.imported > 0 -> confirm(
+                ctx,
+                "已导入 ${rep.imported} 门，跳过 ${rep.skipped} 行",
+                "第一处没认出的在第 ${rep.badLineNo} 行：\n${rep.firstBadLine}\n\n" +
+                    "每行格式：课程名|星期|开始节|结束节|周次|地点\n" +
+                    "例如：高等数学|周一|1|2|1-16|致广楼303",
+                onOk = {}
+            )
+            else -> confirm(
+                ctx,
+                "没有认出课程（旧课表未改动）",
+                "第 ${rep.badLineNo} 行开始就认不出：\n${rep.firstBadLine}\n\n" +
+                    "每行需要：课程名|星期|开始节|结束节|周次|地点\n" +
+                    "例如：高等数学|周一|1|2|1-16|致广楼303\n" +
+                    "也支持逗号分隔和 Excel 导出的带引号 CSV。",
+                onOk = {}
+            )
+        }
+    }
+
     private fun importDialog() {
         val modes = listOf("教务/表格文本（导入会先清空旧课表）", "JSON 课表（导入会先清空旧课表）", "取消")
         choose(ctx, "导入课表", modes) { which ->
@@ -925,9 +951,17 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                     listOf("每行一条，例：高等数学|一|1|2|1-16|格物楼101（会先清空旧课表）" to ""),
                     multiline = true
                 ) { v ->
-                    val n = CourseStore.importLines(ctx, v.firstOrNull().orEmpty())
-                    refresh()
-                    ctx.toast(if (n > 0) "已导入 $n 门课程" else "没有解析出课程，检查格式")
+                    val txt = v.firstOrNull().orEmpty()
+                    val head = txt.trimStart()
+                    when {
+                        head.startsWith("{") || head.startsWith("[") ->
+                            ctx.toast("这看起来是 JSON，请用上面的「JSON 课表」入口导入")
+                        else -> {
+                            val rep = CourseStore.importLinesDetailed(ctx, txt)
+                            refresh()
+                            showImportReport(rep)
+                        }
+                    }
                 }
                 1 -> inputForm(
                     ctx, "粘贴 JSON",

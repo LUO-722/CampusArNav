@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 圆点：录制 -->
+    <path
+        android:pathData="M5.4,12a6.6,6.6 0 1 0 13.2,0a6.6,6.6 0 1 0 -13.2,0"
+        android:fillColor="#000000" />
+</vector>

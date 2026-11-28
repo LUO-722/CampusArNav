@@ -6,9 +6,11 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.campus.arnav.LoginActivity
@@ -22,8 +24,8 @@ import com.campus.arnav.net.JwxtClient
 /**
  * 第五栏「我的」：学籍卡 + 本机统计 + 本周课程 + 教务数据（考试/成绩）+ 快捷入口。
  *
- * 排版按「人 → 这周 → 教务给的结果 → 设置」从近到远铺开，一眼看清自己是谁、这周什么课、
- * 教务那边还搬来了什么。学籍信息来自本机资料，同步教务时自动补齐。
+ * 视觉走 Ins 浅色：粉白渐变透底、白卡 20dp 圆角 + 1dp 描边 + 2dp 阴影，
+ * 正文系统字体、页面大标题用装饰字体。业务逻辑与 public 回调保持不变。
  */
 class ProfileTab(
     private val ctx: Context,
@@ -33,6 +35,8 @@ class ProfileTab(
 
     init {
         orientation = VERTICAL
+        // 不铺纯色底，让 MainShell 的 #FFF8FB→#EFF7FE 渐变透出来
+        setBackgroundColor(Color.TRANSPARENT)
         setPadding(ctx.dp(16), ctx.dp(14), ctx.dp(16), ctx.dp(24))
     }
 
@@ -42,55 +46,85 @@ class ProfileTab(
         val st = ProfileStore.stats(ctx)
 
         header(st)
-        idCard(p, st)
+        idCard(p)
         statRow(st)
         weekCard(st)
-        jwCard(st)
+        jwCard()
         quickCard()
         footer()
     }
 
-    // ① 标题
+    // ① 标题：装饰字体 22sp + 右侧 34dp 圆形设置按钮
     private fun header(st: ProfileStore.Stats) {
-        addView(textView(ctx, "我的", 26f, ctx.color(R.color.text_primary), bold = true))
-        addView(textView(ctx,
-            "${st.semesterName} · 第 ${st.currentWeek} / ${st.totalWeeks} 周",
-            12f, ctx.color(R.color.accent)).apply { setPadding(0, ctx.dp(2), 0, 0) })
+        val head = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val titleCol = LinearLayout(ctx).apply { orientation = VERTICAL }
+        titleCol.addView(titleText(ctx, "我的"))
+        titleCol.addView(
+            textView(
+                ctx,
+                "${st.semesterName} · 第 ${st.currentWeek} / ${st.totalWeeks} 周",
+                12.5f,
+                ctx.color(R.color.text_secondary)
+            ).apply { setPadding(0, ctx.dp(2), 0, 0) }
+        )
+        head.addView(
+            titleCol,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        head.addView(
+            circleButton("⚙", "设置") { onOpenSettings() },
+            LinearLayout.LayoutParams(ctx.dp(34), ctx.dp(34))
+        )
+        addView(head)
     }
 
-    // ② 学籍卡
-    private fun idCard(p: ProfileStore.Profile, st: ProfileStore.Stats) {
-        val card = card(ctx, 14)
+    // ② 身份卡
+    private fun idCard(p: ProfileStore.Profile) {
+        val card = card(ctx, 16)
+
         val head = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         val avatar = TextView(ctx).apply {
             text = p.initial
-            textSize = 24f
-            setTextColor(Color.parseColor("#FFFFFF"))
+            textSize = 22f
+            setTextColor(ctx.color(R.color.accent_ink))
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
+            includeFontPadding = false
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(ctx.color(R.color.accent))
+                setColor(ctx.color(R.color.accent_soft))
             }
         }
-        head.addView(avatar, LinearLayout.LayoutParams(ctx.dp(58), ctx.dp(58)))
+        head.addView(avatar, LinearLayout.LayoutParams(ctx.dp(56), ctx.dp(56)))
+
         val texts = LinearLayout(ctx).apply {
             orientation = VERTICAL
-            setPadding(ctx.dp(12), 0, 0, 0)
+            setPadding(ctx.dp(12), 0, ctx.dp(8), 0)
         }
-        texts.addView(textView(ctx, p.nick, 18f, ctx.color(R.color.text_primary), bold = true))
-        texts.addView(textView(ctx, subLine(p), 12f, ctx.color(R.color.text_secondary)))
-        head.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        head.addView(button(ctx, "编辑", ctx.color(R.color.bg_dark), ctx.color(R.color.text_primary)).apply {
-            textSize = 12f
-            setOnClickListener { editProfile() }
-        }, LinearLayout.LayoutParams(ctx.dp(58), ctx.dp(36)))
+        texts.addView(
+            textView(ctx, p.nick.ifBlank { "同学" }, 18f, ctx.color(R.color.text_primary), bold = true)
+        )
+        texts.addView(
+            textView(ctx, subLine(p), 12.5f, ctx.color(R.color.text_secondary))
+                .apply { setPadding(0, ctx.dp(3), 0, 0) }
+        )
+        head.addView(
+            texts,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        head.addView(
+            miniGhost("编辑") { editProfile() },
+            LinearLayout.LayoutParams(ctx.dp(58), ctx.dp(32))
+        )
         card.addView(head)
 
-        // 学籍六项两张一行，像学生证的资料面
+        // 学籍四项一行、共四行，label 淡、value 深
         val rows = listOf(
             listOf("学号" to p.sid.ifBlank { "未填" }, "性别" to p.gender.ifBlank { "—" }),
             listOf("院系" to p.college.ifBlank { "未同步" }, "专业" to p.major.ifBlank { "—" }),
@@ -98,91 +132,198 @@ class ProfileTab(
             listOf("入学" to p.enterDate.ifBlank { "—" }, "宿舍" to p.dorm.ifBlank { "—" })
         )
         for (pair in rows) {
-            val line = LinearLayout(ctx).apply {
-                orientation = HORIZONTAL
-                setPadding(0, ctx.dp(8), 0, 0)
-            }
+            val line = LinearLayout(ctx).apply { orientation = HORIZONTAL }
             for ((i, kv) in pair.withIndex()) {
-                line.addView(kvBlock(kv.first, kv.second), LinearLayout.LayoutParams(
-                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
-                ).apply { if (i > 0) leftMargin = ctx.dp(10) })
+                line.addView(
+                    infoCell(kv.first, kv.second),
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        if (i > 0) leftMargin = ctx.dp(12)
+                    }
+                )
             }
-            card.addView(line)
+            card.addView(
+                line,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = ctx.dp(10) }
+            )
         }
         if (p.sid.isBlank() && p.college.isBlank()) {
-            card.addView(textView(ctx,
-                "登录教务系统同步一次，姓名、学号、院系、专业、班级会自动补齐；也可以点「编辑」自己填。",
-                11f, ctx.color(R.color.text_secondary)).apply { setPadding(0, ctx.dp(10), 0, 0) })
+            card.addView(
+                textView(
+                    ctx,
+                    "登录教务系统同步一次，姓名、学号、院系、专业、班级会自动补齐；也可以点「编辑」自己填。",
+                    12f,
+                    ctx.color(R.color.text_hint)
+                ).apply { setPadding(0, ctx.dp(12), 0, 0) }
+            )
         }
         addView(card, cardLp())
     }
 
-    // ③ 统计
+    // ③ 统计 2×2：粉/蓝浅底交替
     private fun statRow(st: ProfileStore.Stats) {
-        val row = LinearLayout(ctx).apply { orientation = HORIZONTAL }
-        row.addView(statCell("课程", st.courseCount.toString()), weighted())
-        row.addView(statCell("本周", st.weekCourseCount.toString()), weighted())
-        row.addView(statCell("考试", st.examCount.toString()), weighted())
-        row.addView(statCell("成绩", st.gradeCount.toString()), weighted())
-        addView(row, cardLp())
+        val cells = listOf(
+            "课程" to st.courseCount.toString(),
+            "本周" to st.weekCourseCount.toString(),
+            "考试" to st.examCount.toString(),
+            "成绩" to st.gradeCount.toString()
+        )
+        val grid = LinearLayout(ctx).apply { orientation = VERTICAL }
+        for (r in 0 until 2) {
+            val row = LinearLayout(ctx).apply { orientation = HORIZONTAL }
+            for (c in 0 until 2) {
+                val i = r * 2 + c
+                row.addView(
+                    statCell(cells[i].first, cells[i].second, pink = i % 2 == 0),
+                    LinearLayout.LayoutParams(0, ctx.dp(72), 1f).apply {
+                        if (c > 0) leftMargin = ctx.dp(10)
+                    }
+                )
+            }
+            grid.addView(
+                row,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { if (r > 0) topMargin = ctx.dp(10) }
+            )
+        }
+        addView(grid, cardLp())
     }
 
-    // ④ 本周课程（按天分组）
+    // ④ 本周课程：按天分组、条目之间 1dp 分隔
     private fun weekCard(st: ProfileStore.Stats) {
-        val card = card(ctx, 14)
+        val card = card(ctx, 16)
         card.addView(titleRow("本周课程", if (st.weekCourses.isEmpty()) "" else "${st.weekCourses.size} 节"))
         if (st.weekCourses.isEmpty()) {
-            card.addView(textView(ctx,
-                "本周没有课（或课表还没同步）。到「课程表」同步教务，或导入课表。",
-                12f, ctx.color(R.color.text_secondary)).apply { setPadding(0, ctx.dp(8), 0, 0) })
+            card.addView(
+                textView(
+                    ctx,
+                    "本周没有课（或课表还没同步）。到「课程表」同步教务，或导入课表。",
+                    12.5f,
+                    ctx.color(R.color.text_hint)
+                ).apply { setPadding(0, ctx.dp(8), 0, 0) }
+            )
         } else {
             var lastDay = -1
+            var firstOfDay = true
             for (c in st.weekCourses) {
                 if (c.weekday != lastDay) {
                     lastDay = c.weekday
-                    card.addView(textView(ctx, "周" + ScheduleLogic.weekdayName(c.weekday),
-                        12f, ctx.color(R.color.accent), bold = true).apply {
-                        setPadding(0, ctx.dp(10), 0, 0)
-                    })
+                    val pill = TextView(ctx).apply {
+                        text = "周" + ScheduleLogic.weekdayName(c.weekday)
+                        textSize = 11.5f
+                        gravity = Gravity.CENTER
+                        includeFontPadding = false
+                        setTextColor(ctx.color(R.color.accent_ink))
+                        background = rounded(ctx, ctx.color(R.color.accent_soft), 999)
+                        setPadding(ctx.dp(9), ctx.dp(3), ctx.dp(9), ctx.dp(3))
+                    }
+                    card.addView(
+                        pill,
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply { topMargin = ctx.dp(12) }
+                    )
+                    firstOfDay = true
+                }
+                if (!firstOfDay) {
+                    card.addView(thinLine(), LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(1)
+                    ).apply { topMargin = ctx.dp(8) })
                 }
                 val time = ScheduleLogic.periodTime(c.startPeriod, "").substringBefore("-")
-                val periodLabel = if (c.startPeriod == c.endPeriod) {
+                val period = if (c.startPeriod == c.endPeriod) {
                     "第 ${c.startPeriod} 节"
                 } else {
                     "第 ${c.startPeriod}-${c.endPeriod} 节"
                 }
-                card.addView(textView(ctx, "$time  $periodLabel  ${c.name}",
-                    13f, ctx.color(R.color.text_primary)).apply { setPadding(0, ctx.dp(6), 0, 0) })
-                val sub = listOf(c.location, c.teacher).filter { it.isNotBlank() }.joinToString(" · ")
-                if (sub.isNotBlank()) {
-                    card.addView(textView(ctx, sub, 11f, ctx.color(R.color.text_secondary)))
+                val row = LinearLayout(ctx).apply {
+                    orientation = HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
                 }
+                row.addView(
+                    textView(ctx, "$time  $period", 12f, ctx.color(R.color.text_secondary)),
+                    LinearLayout.LayoutParams(ctx.dp(100), ViewGroup.LayoutParams.WRAP_CONTENT)
+                )
+                row.addView(
+                    textView(ctx, c.name, 14.5f, ctx.color(R.color.text_primary)).apply {
+                        maxLines = 1
+                        ellipsize = TextUtils.TruncateAt.END
+                    },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                )
+                if (c.location.isNotBlank()) {
+                    row.addView(
+                        textView(ctx, c.location, 12f, ctx.color(R.color.text_hint)).apply {
+                            maxLines = 1
+                            ellipsize = TextUtils.TruncateAt.END
+                        },
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply { leftMargin = ctx.dp(8) }
+                    )
+                }
+                card.addView(
+                    row,
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = ctx.dp(8) }
+                )
+                firstOfDay = false
             }
         }
         addView(card, cardLp())
     }
 
-    // ⑤ 教务数据
-    private fun jwCard(st: ProfileStore.Stats) {
+    // ⑤ 教务数据：标题 + 同步按钮、考试/成绩摘要行、三个 chip
+    private fun jwCard() {
         val session = AuthStore.session(ctx)
 
-        // 登录是「可选项」：先说明不登录也能用课程表，避免这里又变成一道登录墙
         if (!session.loggedIn) {
-            addView(textView(ctx, "不登录也能用课程表：先看示例，随时可换成自己的课表",
-                11f, ctx.color(R.color.text_secondary)).apply {
-                setPadding(ctx.dp(2), ctx.dp(12), ctx.dp(2), 0)
-            })
+            addView(
+                textView(
+                    ctx,
+                    "不登录也能用课程表：先看示例，随时可换成自己的课表",
+                    12f,
+                    ctx.color(R.color.text_hint)
+                ).apply { setPadding(ctx.dp(2), ctx.dp(12), ctx.dp(2), 0) }
+            )
         }
 
-        val card = card(ctx, 14)
-        card.addView(titleRow("教务数据", ""))
+        val card = card(ctx, 16)
+        val head = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        head.addView(
+            textView(ctx, "教务数据", 15f, ctx.color(R.color.text_primary), bold = true),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        head.addView(
+            miniGhost(if (session.loggedIn) "同步教务" else "登录教务") {
+                if (session.loggedIn) syncJwxt() else openLogin()
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dp(32)
+            )
+        )
+        card.addView(head)
+
         val line = if (!session.loggedIn) {
             "还没登录教务系统 · 登录是可选的"
         } else {
             session.modeLabel() + " · " + AuthStore.lastSyncText(ctx)
         }
-        card.addView(textView(ctx, line, 11f, ctx.color(R.color.text_secondary))
-            .apply { setPadding(0, ctx.dp(4), 0, 0) })
+        card.addView(
+            textView(ctx, line, 12f, ctx.color(R.color.text_hint))
+                .apply { setPadding(0, ctx.dp(4), 0, 0) }
+        )
 
         val exams = try {
             CourseStore.exams(ctx)
@@ -195,71 +336,85 @@ class ProfileTab(
             emptyList()
         }
 
-        // 考试
-        card.addView(textView(ctx, "考试安排（${exams.size}）", 13f, ctx.color(R.color.text_primary), bold = true)
-            .apply { setPadding(0, ctx.dp(10), 0, 0) })
-        if (exams.isEmpty()) {
-            card.addView(textView(ctx, "教务系统暂无考试安排（期末安排一般到学期中后段才发布）。",
-                11f, ctx.color(R.color.text_secondary)).apply { setPadding(0, ctx.dp(4), 0, 0) })
+        val examLine = if (exams.isEmpty()) {
+            "暂无考试安排（一般学期中后段才发布）"
         } else {
-            for (e in exams.take(4)) {
-                card.addView(textView(ctx, e.course, 12f, ctx.color(R.color.text_primary))
-                    .apply { setPadding(0, ctx.dp(6), 0, 0) })
-                val sub = listOf(e.time, e.location, e.seat).filter { it.isNotBlank() }.joinToString(" · ")
-                if (sub.isNotBlank()) card.addView(textView(ctx, sub, 11f, ctx.color(R.color.text_secondary)))
-            }
+            "${exams.size} 场 · " + exams.take(2).joinToString("，") { it.course }
         }
-
-        // 成绩
-        card.addView(textView(ctx, "成绩单（${grades.size}）", 13f, ctx.color(R.color.text_primary), bold = true)
-            .apply { setPadding(0, ctx.dp(12), 0, 0) })
-        if (grades.isEmpty()) {
-            card.addView(textView(ctx, "本学期还没有出成绩。出分后同步一次就会列在这里。",
-                11f, ctx.color(R.color.text_secondary)).apply { setPadding(0, ctx.dp(4), 0, 0) })
+        val gradeLine = if (grades.isEmpty()) {
+            "本学期还没有出分，出分后同步一次就会列在这里"
         } else {
-            for (g in grades.take(5)) {
-                val head = g.course + "   " + g.score
-                card.addView(textView(ctx, head, 12f, ctx.color(R.color.text_primary))
-                    .apply { setPadding(0, ctx.dp(6), 0, 0) })
-                val sub = listOf(
-                    if (g.credit.isNotBlank()) g.credit + " 学分" else "",
-                    if (g.gpa.isNotBlank()) g.gpa + " 绩点" else "",
-                    g.term
-                ).filter { it.isNotBlank() }.joinToString(" · ")
-                if (sub.isNotBlank()) card.addView(textView(ctx, sub, 11f, ctx.color(R.color.text_secondary)))
-            }
+            "${grades.size} 门已出分" + grades.take(1).joinToString("") { " · ${it.course} ${it.score}" }
         }
+        card.addView(summaryRow("考试", examLine, R.color.text_primary))
+        card.addView(summaryRow("成绩", gradeLine, R.color.text_primary))
 
-        card.addView(actionRow(
-            // 未登录时这里就是登录入口：不逼着人先登录，想登录随时点
-            (if (session.loggedIn) "同步教务" else "登录教务（可选）") to {
-                if (session.loggedIn) syncJwxt() else openLogin()
-            },
-            "全部考试" to { showExams(CourseStore.exams(ctx)) }
-        ))
-        card.addView(actionRow(
+        val chips = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            setPadding(0, ctx.dp(12), 0, 0)
+        }
+        val actions = listOf<Pair<String, () -> Unit>>(
+            "全部考试" to { showExams(CourseStore.exams(ctx)) },
             "全部成绩" to { showGrades(CourseStore.grades(ctx)) },
             "教务原文" to { showJwFiles() }
-        ))
+        )
+        for ((i, a) in actions.withIndex()) {
+            chips.addView(
+                smallChip(a.first) { a.second() },
+                LinearLayout.LayoutParams(0, ctx.dp(32), 1f).apply {
+                    if (i > 0) leftMargin = ctx.dp(8)
+                }
+            )
+        }
+        card.addView(chips)
         addView(card, cardLp())
     }
 
-    // ⑥ 快捷入口
+    // ⑥ 快捷入口 2×2 宫格
     private fun quickCard() {
-        val card = card(ctx, 14)
-        card.addView(titleRow("快捷入口", ""))
-        card.addView(actionRow("课程表" to onOpenTimetable, "设置" to onOpenSettings))
-        card.addView(actionRow("导出课表" to { shareBackup() }, "关于" to { about() }))
-        addView(card, cardLp())
+        val entries = listOf<Pair<String, Pair<String, () -> Unit>>>(
+            "▤" to ("课程表" to onOpenTimetable),
+            "⚙" to ("设置" to onOpenSettings),
+            "↗" to ("导出课表" to { shareBackup() }),
+            "ⓘ" to ("关于" to { about() })
+        )
+        val grid = LinearLayout(ctx).apply { orientation = VERTICAL }
+        for (r in 0 until 2) {
+            val row = LinearLayout(ctx).apply { orientation = HORIZONTAL }
+            for (c in 0 until 2) {
+                val (glyph, entry) = entries[r * 2 + c]
+                row.addView(
+                    quickCell(glyph, entry.first, entry.second),
+                    LinearLayout.LayoutParams(0, ctx.dp(80), 1f).apply {
+                        if (c > 0) leftMargin = ctx.dp(10)
+                    }
+                )
+            }
+            grid.addView(
+                row,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { if (r > 0) topMargin = ctx.dp(10) }
+            )
+        }
+        addView(grid, cardLp())
     }
 
     private fun footer() {
-        addView(textView(ctx,
-            "· 学籍与课表来自教务系统，原文留档在「教务原文」里可逐字核对。\n" +
-                "· 身份证号、家庭住址等敏感信息不落库、不显示。\n" +
-                "· 资料只存本机，不上传；知识库为离线快照。",
-            11f, ctx.color(R.color.text_secondary)
-        ).apply { setPadding(0, ctx.dp(14), 0, 0) })
+        addView(
+            textView(
+                ctx,
+                "· 学籍与课表来自教务系统，原文留档在「教务原文」里可逐字核对。\n" +
+                    "· 身份证号、家庭住址等敏感信息不落库、不显示。\n" +
+                    "· 资料只存本机，不上传；知识库为离线快照。",
+                11.5f,
+                ctx.color(R.color.text_hint)
+            ).apply {
+                setLineSpacing(0f, 1.5f)
+                setPadding(0, ctx.dp(16), 0, 0)
+            }
+        )
     }
 
     // ---- 小工具 ----
@@ -272,60 +427,159 @@ class ProfileTab(
         return if (parts.isEmpty()) "点「编辑」填写学籍，或登录教务自动同步" else parts.joinToString(" · ")
     }
 
-    private fun kvBlock(label: String, value: String): LinearLayout = LinearLayout(ctx).apply {
+    /** 浅底数字格：粉格深粉字、蓝格深蓝字。 */
+    private fun statCell(label: String, value: String, pink: Boolean): LinearLayout =
+        LinearLayout(ctx).apply {
+            orientation = VERTICAL
+            gravity = Gravity.CENTER
+            background = rounded(
+                ctx,
+                if (pink) ctx.color(R.color.accent_soft) else ctx.color(R.color.blue_soft),
+                16
+            )
+            setPadding(ctx.dp(6), ctx.dp(12), ctx.dp(6), ctx.dp(12))
+            addView(
+                textView(
+                    ctx,
+                    value,
+                    20f,
+                    if (pink) ctx.color(R.color.accent_ink) else ctx.color(R.color.blue_ink),
+                    bold = true
+                )
+            )
+            addView(
+                textView(ctx, label, 11.5f, ctx.color(R.color.text_secondary))
+                    .apply { setPadding(0, ctx.dp(4), 0, 0) }
+            )
+        }
+
+    private fun infoCell(label: String, value: String): LinearLayout = LinearLayout(ctx).apply {
         orientation = VERTICAL
-        addView(textView(ctx, label, 10f, ctx.color(R.color.text_secondary)))
-        addView(textView(ctx, value, 12f, ctx.color(R.color.text_primary)))
+        addView(textView(ctx, label, 11.5f, ctx.color(R.color.text_hint)))
+        addView(
+            textView(ctx, value, 13.5f, ctx.color(R.color.text_primary)).apply {
+                setPadding(0, ctx.dp(3), 0, 0)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            }
+        )
     }
 
     private fun titleRow(title: String, right: String): LinearLayout = LinearLayout(ctx).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        addView(textView(ctx, title, 15f, ctx.color(R.color.text_primary), bold = true),
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(
+            textView(ctx, title, 15f, ctx.color(R.color.text_primary), bold = true),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
         if (right.isNotBlank()) {
-            addView(textView(ctx, right, 11f, ctx.color(R.color.text_secondary)))
+            addView(textView(ctx, right, 11.5f, ctx.color(R.color.text_hint)))
         }
     }
 
-    private var statIndex = 0
+    private fun summaryRow(label: String, text: String, colorRes: Int): LinearLayout =
+        LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, ctx.dp(8), 0, 0)
+            addView(
+                textView(ctx, label, 12f, ctx.color(R.color.text_secondary)),
+                LinearLayout.LayoutParams(ctx.dp(44), ViewGroup.LayoutParams.WRAP_CONTENT)
+            )
+            addView(
+                textView(ctx, text, 13f, ctx.color(colorRes)).apply {
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            )
+        }
 
-    /** Ins 风统计格：粉、蓝交替的浅色底，数字用同色系深色。 */
-    private fun statCell(label: String, value: String): LinearLayout = LinearLayout(ctx).apply {
-        orientation = VERTICAL
+    /** 34dp 圆形按钮：白底 + 1dp 描边 + 深色符号。 */
+    private fun circleButton(glyph: String, desc: String, onClick: () -> Unit): TextView =
+        TextView(ctx).apply {
+            text = glyph
+            textSize = 15f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            contentDescription = desc
+            setTextColor(ctx.color(R.color.text_secondary))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(ctx.color(R.color.bg_card))
+                setStroke(ctx.dp(1), ctx.color(R.color.border))
+            }
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
+
+    /** 小号 ghost 按钮：白底 + 1dp 描边 + 正文深色字，32dp 高。 */
+    private fun miniGhost(text: String, onClick: () -> Unit): TextView = TextView(ctx).apply {
+        this.text = text
+        textSize = 12f
         gravity = Gravity.CENTER
-        val pink = statIndex++ % 2 == 0
-        val bgTint = if (pink) ctx.color(R.color.accent_soft) else ctx.color(R.color.blue_soft)
-        val ink = if (pink) ctx.color(R.color.accent) else ctx.color(R.color.blue_ink)
-        background = rounded(ctx, bgTint, 16)
-        setPadding(ctx.dp(6), ctx.dp(12), ctx.dp(6), ctx.dp(12))
-        addView(textView(ctx, value, 20f, ink, bold = true))
-        addView(textView(ctx, label, 11f, ctx.color(R.color.text_secondary)))
+        includeFontPadding = false
+        setTextColor(ctx.color(R.color.text_primary))
+        background = GradientDrawable().apply {
+            cornerRadius = ctx.dp(14).toFloat()
+            setColor(ctx.color(R.color.bg_card))
+            setStroke(ctx.dp(1), ctx.color(R.color.border))
+        }
+        setPadding(ctx.dp(12), 0, ctx.dp(12), 0)
+        isClickable = true
+        setOnClickListener { onClick() }
     }
 
-    private fun weighted(): LinearLayout.LayoutParams =
-        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+    /** 胶囊 chip：浅粉底 + 深粉字。 */
+    private fun smallChip(text: String, onClick: () -> Unit): TextView = TextView(ctx).apply {
+        this.text = text
+        textSize = 12f
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        setTextColor(ctx.color(R.color.accent_ink))
+        background = rounded(ctx, ctx.color(R.color.accent_soft), 999)
+        isClickable = true
+        setOnClickListener { onClick() }
+    }
 
-    private fun weighted(afterIndex: Int) = LinearLayout.LayoutParams(
-        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
-    ).apply { leftMargin = ctx.dp(8) }
+    /** 快捷入口格：白底 16dp 圆角 + 1dp 描边 + 1dp 阴影，80dp 高。 */
+    private fun quickCell(glyph: String, label: String, onClick: () -> Unit): LinearLayout =
+        LinearLayout(ctx).apply {
+            orientation = VERTICAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                cornerRadius = ctx.dp(16).toFloat()
+                setColor(ctx.color(R.color.bg_card))
+                setStroke(ctx.dp(1), ctx.color(R.color.border))
+            }
+            elevation = ctx.dp(1).toFloat()
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: android.graphics.Outline) {
+                    outline.setRoundRect(
+                        0, 0, view.width, view.height, ctx.dp(16).toFloat()
+                    )
+                }
+            }
+            clipToOutline = true
+            addView(
+                textView(ctx, glyph, 18f, ctx.color(R.color.accent), bold = true)
+                    .apply { gravity = Gravity.CENTER }
+            )
+            addView(
+                textView(ctx, label, 13f, ctx.color(R.color.text_primary))
+                    .apply { setPadding(0, ctx.dp(6), 0, 0) }
+            )
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
+
+    private fun thinLine(): View = View(ctx).apply {
+        setBackgroundColor(ctx.color(R.color.border))
+    }
 
     private fun cardLp() = LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
     ).apply { topMargin = ctx.dp(10) }
-
-    private fun actionRow(vararg actions: Pair<String, () -> Unit>): LinearLayout = LinearLayout(ctx).apply {
-        orientation = HORIZONTAL
-        setPadding(0, ctx.dp(10), 0, 0)
-        for ((i, a) in actions.withIndex()) {
-            addView(button(ctx, a.first, ctx.color(R.color.bg_dark), ctx.color(R.color.text_primary)).apply {
-                textSize = 13f
-                setOnClickListener { a.second() }
-            }, LinearLayout.LayoutParams(0, ctx.dp(42), 1f).apply {
-                if (i > 0) leftMargin = ctx.dp(8)
-            })
-        }
-    }
 
     private fun editProfile() {
         val p = ProfileStore.get(ctx)

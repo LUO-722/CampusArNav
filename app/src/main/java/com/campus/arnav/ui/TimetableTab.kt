@@ -31,24 +31,34 @@ import java.util.Date
  */
 class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
 
+    // ---- Ins 浅色·精致化 色板（只用于本页；Ui.kt 正在别处升级，这里先自建） ----
+    private val cPrimary = 0xFFE8447A.toInt()   // 主色
+    private val cInk = 0xFFA61E46.toInt()       // 深主色文字
+    private val cPink = 0xFFFFEAF2.toInt()      // 浅粉底
+    private val cBody = 0xFF3A3040.toInt()      // 正文
+    private val cSub = 0xFF7A6A82.toInt()       // 次要
+    private val cBorder = 0xFFF2E4EC.toInt()    // 1dp 描边
+
     private val grid = TimetableGridView(ctx).apply {
         contentDescription = "课程表：7 天 × 12 节；点课程块查看详情"
     }
-    private val weekLabel = textView(ctx, "", 13f, ctx.color(R.color.text_secondary))
-    private val subTitle = textView(ctx, "", 12f, ctx.color(R.color.text_secondary))
+    private val weekLabel = textView(ctx, "", 15f, cBody, bold = true)
+    private val subTitle = textView(ctx, "", 12.5f, cSub)
     private val todayBox = LinearLayout(ctx)
     private val upcomingBox = LinearLayout(ctx)
     private val weekBox = LinearLayout(ctx)
+    /** 周视图：这一周没有任何课时显示的空态（不留白）。 */
+    private val weekEmpty = LinearLayout(ctx)
     /** 顶部「当前是示例课表」提示条：全部是示例数据时显示。 */
     private val demoTip = LinearLayout(ctx)
     /** 翻到寒暑假/节假日那一周时的说明条。 */
-    private val breakTip = textView(ctx, "", 12f, ctx.color(R.color.accent_ink)).apply {
-        setPadding(ctx.dp(10), ctx.dp(6), ctx.dp(10), ctx.dp(6))
-        background = rounded(ctx, ctx.color(R.color.accent_soft), 10)
+    private val breakTip = textView(ctx, "", 12.5f, cInk).apply {
+        setPadding(ctx.dp(12), ctx.dp(8), ctx.dp(12), ctx.dp(8))
+        background = rounded(ctx, cPink, 14)
         visibility = GONE
     }
 
-    private val dayNavLabel = textView(ctx, "", 15f, ctx.color(R.color.text_primary), bold = true).apply {
+    private val dayNavLabel = textView(ctx, "", 15f, cBody, bold = true).apply {
         gravity = Gravity.CENTER
     }
     private val heroHolder = FrameLayout(ctx)
@@ -116,22 +126,120 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
 
     // ---------------- 顶部：标题 + 周/日 切换 ----------------
 
+    /** 圆形小按钮（◀ ▶ / 36dp）：白底 + 1dp 描边，和胶囊控件同一套语言。 */
+    private fun circleBtn(label: String, onClick: () -> Unit): TextView =
+        textView(ctx, label, 13f, cSub).apply {
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.WHITE)
+                setStroke(ctx.dp(1), cBorder)
+            }
+            elevation = ctx.dp(1).toFloat()
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
+
+    /** ghost 胶囊按钮：白底 + 1dp 描边 + 深主色字（导入 / 本周 / 今天 这类低权重动作）。 */
+    private fun ghostPill(text: String, sizeSp: Float = 13f, onClick: () -> Unit): TextView =
+        textView(ctx, text, sizeSp, cInk, bold = true).apply {
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                cornerRadius = ctx.dp(999).toFloat()
+                setColor(Color.WHITE)
+                setStroke(ctx.dp(1), cBorder)
+            }
+            elevation = ctx.dp(1).toFloat()
+            setPadding(ctx.dp(14), 0, ctx.dp(14), 0)
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
+
+    /** 浅粉小徽标（本周 / 示例）：#FFEAF2 底 + #A61E46 字。 */
+    private fun softBadge(text: String, sizeSp: Float = 12f): TextView =
+        textView(ctx, text, sizeSp, cInk, bold = true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(ctx, cPink, 999)
+            setPadding(ctx.dp(10), ctx.dp(4), ctx.dp(10), ctx.dp(4))
+        }
+
+    /** 操作行里的白底描边按钮（导入课表 / ＋课程 …），和卡片同一套细边。 */
+    private fun softBtn(text: String, fg: Int, onClick: () -> Unit): TextView =
+        textView(ctx, text, 13f, fg, bold = true).apply {
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                cornerRadius = ctx.dp(14).toFloat()
+                setColor(Color.WHITE)
+                setStroke(ctx.dp(1), cBorder)
+            }
+            setOnClickListener { onClick() }
+        }
+
+    /** 居中空态：淡粉圆底 + ✦ + 标题 + 小字提示（周/日视图共用）。 */
+    private fun emptyState(title: String, hint: String): LinearLayout {
+        val box = LinearLayout(ctx).apply {
+            orientation = VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(ctx.dp(18), ctx.dp(24), ctx.dp(18), ctx.dp(24))
+            background = GradientDrawable().apply {
+                cornerRadius = ctx.dp(20).toFloat()
+                setColor(Color.WHITE)
+                setStroke(ctx.dp(1), cBorder)
+            }
+            elevation = ctx.dp(1).toFloat()
+        }
+        val star = TextView(ctx).apply {
+            text = "✦"
+            textSize = 18f
+            setTextColor(cPrimary)
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(cPink)
+            }
+        }
+        box.addView(star, LinearLayout.LayoutParams(ctx.dp(46), ctx.dp(46)))
+        box.addView(textView(ctx, title, 15f, cBody, bold = true).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, ctx.dp(12), 0, 0)
+        })
+        box.addView(textView(ctx, hint, 12.5f, cSub).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, ctx.dp(5), 0, 0)
+        })
+        return box
+    }
+
     private fun buildHeader(): LinearLayout {
         val header = LinearLayout(ctx).apply {
             orientation = VERTICAL
         }
-        header.addView(
-            handText(ctx, "课程表", 26f, ctx.color(R.color.text_primary)),
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        )
 
-        // 周 / 日 切换：整条等宽分段控件，居中、加宽、加高，选中态更明显
+        // 标题行：左侧「课程表」+ 学期/本周小字，右侧 ghost「导入」
+        val top = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val left = LinearLayout(ctx).apply { orientation = VERTICAL }
+        // 全页只有这个页面大标题用手写体，正文一律系统字体
+        left.addView(handText(ctx, "课程表", 22f, cBody))
+        left.addView(subTitle, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = ctx.dp(3) })
+        top.addView(left, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(
+            ghostPill("导入") { importDialog() },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dp(34)).apply { leftMargin = ctx.dp(10) }
+        )
+        header.addView(top)
+
+        // 周 / 日 切换：白底胶囊 + 1dp 描边 + 40dp 高，选中段浅粉底、深主色粗字
         val seg = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             background = GradientDrawable().apply {
-                cornerRadius = ctx.dp(24).toFloat()
+                cornerRadius = ctx.dp(999).toFloat()
                 setColor(Color.WHITE)
-                setStroke(ctx.dp(1), ctx.color(R.color.border))
+                setStroke(ctx.dp(1), cBorder)
             }
             elevation = ctx.dp(2).toFloat()
             setPadding(ctx.dp(4), ctx.dp(4), ctx.dp(4), ctx.dp(4))
@@ -139,14 +247,13 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         for ((label, idx) in listOf("周视图" to 0, "日视图" to 1)) {
             val tv = if (idx == 0) segWeek else segDay
             tv.text = label
-            tv.textSize = 16f
             tv.gravity = Gravity.CENTER
             tv.setOnClickListener { setMode(idx) }
-            seg.addView(tv, LinearLayout.LayoutParams(0, ctx.dp(42), 1f))
+            seg.addView(tv, LinearLayout.LayoutParams(0, ctx.dp(32), 1f))
         }
         header.addView(seg, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = ctx.dp(10) })
+        ).apply { topMargin = ctx.dp(12) })
         return header
     }
 
@@ -154,16 +261,17 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
     private fun buildDemoTip() {
         demoTip.orientation = HORIZONTAL
         demoTip.gravity = Gravity.CENTER_VERTICAL
-        demoTip.background = rounded(ctx, ctx.color(R.color.accent_soft), 12)
-        demoTip.setPadding(ctx.dp(10), ctx.dp(7), ctx.dp(10), ctx.dp(7))
+        demoTip.background = rounded(ctx, cPink, 14)
+        demoTip.setPadding(ctx.dp(12), ctx.dp(8), ctx.dp(12), ctx.dp(8))
         demoTip.visibility = View.GONE
         demoTip.addView(
-            textView(ctx, "当前是示例课表 · 登录教务自动替换为你的真实课表", 11f, ctx.color(R.color.accent_ink)),
+            textView(ctx, "当前是示例课表 · 登录教务自动替换为你的真实课表", 12.5f, cInk),
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         )
-        val go = textView(ctx, "去登录", 11f, ctx.color(R.color.accent_ink), bold = true).apply {
-            background = rounded(ctx, Color.WHITE, 8)
-            setPadding(ctx.dp(9), ctx.dp(3), ctx.dp(9), ctx.dp(3))
+        val go = textView(ctx, "去登录", 12f, cInk, bold = true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(ctx, Color.WHITE, 999)
+            setPadding(ctx.dp(10), ctx.dp(4), ctx.dp(10), ctx.dp(4))
             setOnClickListener { openLogin() }
         }
         demoTip.addView(go, LinearLayout.LayoutParams(
@@ -185,11 +293,12 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
 
     private fun setMode(m: Int) {
         mode = m
-        val soft = Color.parseColor("#FFE3EE")
         for ((tv, idx) in listOf(segWeek to 0, segDay to 1)) {
-            tv.background = rounded(ctx, if (m == idx) soft else Color.TRANSPARENT, 20)
-            tv.setTextColor(if (m == idx) ctx.color(R.color.accent_ink) else ctx.color(R.color.text_secondary))
-            tv.paint.isFakeBoldText = m == idx
+            val on = m == idx
+            tv.background = if (on) rounded(ctx, cPink, 999) else rounded(ctx, Color.TRANSPARENT, 999)
+            tv.setTextColor(if (on) cInk else cSub)
+            tv.setTextSize(if (on) 15f else 13.5f)
+            tv.paint.isFakeBoldText = on
         }
         weekBox.visibility = if (m == 0) View.VISIBLE else View.GONE
         dayBox.visibility = if (m == 1) View.VISIBLE else View.GONE
@@ -199,32 +308,24 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
 
     private fun buildWeekBox() {
         weekBox.orientation = VERTICAL
-        weekBox.addView(subTitle, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = ctx.dp(2) })
 
-        // 周次切换
+        // 周次切换：◀ 第 12 周 ▶ + 「本周」小徽标（◀ ▶ 是 36dp 圆形白底按钮）
         val weekRow = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, ctx.dp(8), 0, ctx.dp(4))
+            setPadding(0, ctx.dp(10), 0, ctx.dp(6))
         }
-        val prev = button(ctx, "◀", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
-            setOnClickListener { switchWeek(-1) }
-        }
-        val next = button(ctx, "▶", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
-            setOnClickListener { switchWeek(1) }
-        }
-        val now = button(ctx, "本周", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
+        weekLabel.gravity = Gravity.CENTER
+        weekRow.addView(circleBtn("◀") { switchWeek(-1) }, LinearLayout.LayoutParams(ctx.dp(36), ctx.dp(36)))
+        weekRow.addView(weekLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        weekRow.addView(circleBtn("▶") { switchWeek(1) }, LinearLayout.LayoutParams(ctx.dp(36), ctx.dp(36)))
+        weekRow.addView(softBadge("本周").apply {
+            isClickable = true
             setOnClickListener {
                 shownWeek = ScheduleLogic.currentWeek()
                 refresh()
             }
-        }
-        weekRow.addView(prev, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(36)))
-        weekRow.addView(weekLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        weekRow.addView(next, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(36)))
-        weekRow.addView(now, LinearLayout.LayoutParams(ctx.dp(64), ctx.dp(36)).apply { leftMargin = ctx.dp(6) })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dp(30)).apply { leftMargin = ctx.dp(8) })
         weekBox.addView(weekRow)
 
         // 网格
@@ -234,28 +335,29 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         }
         weekBox.addView(hScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
+        // 这一周没课时的空态（不留白）
+        weekEmpty.orientation = VERTICAL
+        weekBox.addView(weekEmpty, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = ctx.dp(10) })
+
         // 操作（两行，避免窄屏挤成多行）
         val ops = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             setPadding(0, ctx.dp(8), 0, ctx.dp(4))
         }
-        ops.addView(button(ctx, "导入课表", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
-            setOnClickListener { importDialog() }
-        }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f))
-        ops.addView(button(ctx, "＋课程", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
-            setOnClickListener { editCourse(null) }
-        }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f).apply { leftMargin = ctx.dp(6) })
-        ops.addView(button(ctx, "示例课表", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
-            setOnClickListener {
-                // 语义 = 「恢复示例课表」：课表空的时候才铺示例，已有课程时先请人清空
-                if (CourseStore.courses(ctx).isNotEmpty()) {
-                    ctx.toast("课表里已有课程，先点「清空」再恢复示例课表")
-                    return@setOnClickListener
-                }
-                CourseStore.seedDemo(ctx, force = true)
-                refresh()
-                ctx.toast("已恢复示例课表，可随时清空")
+        ops.addView(softBtn("导入课表", cInk) { importDialog() }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f))
+        ops.addView(softBtn("＋课程", cBody) { editCourse(null) },
+            LinearLayout.LayoutParams(0, ctx.dp(40), 1f).apply { leftMargin = ctx.dp(6) })
+        ops.addView(softBtn("示例课表", cBody) {
+            // 语义 = 「恢复示例课表」：课表空的时候才铺示例，已有课程时先请人清空
+            if (CourseStore.courses(ctx).isNotEmpty()) {
+                ctx.toast("课表里已有课程，先点「清空」再恢复示例课表")
+                return@softBtn
             }
+            CourseStore.seedDemo(ctx, force = true)
+            refresh()
+            ctx.toast("已恢复示例课表，可随时清空")
         }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f).apply { leftMargin = ctx.dp(6) })
         weekBox.addView(ops)
 
@@ -263,18 +365,14 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
             orientation = HORIZONTAL
             setPadding(0, ctx.dp(4), 0, ctx.dp(4))
         }
-        ops2.addView(button(ctx, "导出 / 分享", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
-            setOnClickListener { exportShare() }
-        }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f))
-        ops2.addView(button(ctx, "＋活动", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
-            setOnClickListener { addActivity() }
-        }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f).apply { leftMargin = ctx.dp(6) })
-        ops2.addView(button(ctx, "清空", ctx.color(R.color.bg_card), ctx.color(R.color.text_secondary)).apply {
-            setOnClickListener {
-                confirm(ctx, "清空课程表", "会删除全部课程与跳课记录，活动保留。") {
-                    CourseStore.clearCourses(ctx)
-                    refresh()
-                }
+        ops2.addView(softBtn("导出 / 分享", cBody) { exportShare() },
+            LinearLayout.LayoutParams(0, ctx.dp(40), 1f))
+        ops2.addView(softBtn("＋活动", cInk) { addActivity() },
+            LinearLayout.LayoutParams(0, ctx.dp(40), 1f).apply { leftMargin = ctx.dp(6) })
+        ops2.addView(softBtn("清空", cSub) {
+            confirm(ctx, "清空课程表", "会删除全部课程与跳课记录，活动保留。") {
+                CourseStore.clearCourses(ctx)
+                refresh()
             }
         }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f).apply { leftMargin = ctx.dp(6) })
         weekBox.addView(ops2)
@@ -296,21 +394,19 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         val navRow = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, ctx.dp(8), 0, ctx.dp(4))
+            setPadding(0, ctx.dp(10), 0, ctx.dp(6))
         }
-        navRow.addView(button(ctx, "◀", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
-            setOnClickListener { shiftDay(-1) }
-        }, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(36)))
+        dayNavLabel.gravity = Gravity.CENTER
+        navRow.addView(circleBtn("◀") { shiftDay(-1) }, LinearLayout.LayoutParams(ctx.dp(36), ctx.dp(36)))
         navRow.addView(dayNavLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        navRow.addView(button(ctx, "▶", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
-            setOnClickListener { shiftDay(1) }
-        }, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(36)))
-        navRow.addView(button(ctx, "今天", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
+        navRow.addView(circleBtn("▶") { shiftDay(1) }, LinearLayout.LayoutParams(ctx.dp(36), ctx.dp(36)))
+        navRow.addView(softBadge("今天").apply {
+            isClickable = true
             setOnClickListener {
                 shownDate = CourseStore.today()
                 refresh()
             }
-        }, LinearLayout.LayoutParams(ctx.dp(64), ctx.dp(36)).apply { leftMargin = ctx.dp(6) })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dp(30)).apply { leftMargin = ctx.dp(8) })
         dayBox.addView(navRow)
 
         heroHolder.layoutParams = LinearLayout.LayoutParams(
@@ -327,8 +423,8 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         ))
     }
 
-    private fun sectionTitle(text: String): TextView = textView(ctx, text, 16f, ctx.color(R.color.text_primary), bold = true).apply {
-        setPadding(0, ctx.dp(12), 0, ctx.dp(6))
+    private fun sectionTitle(text: String): TextView = textView(ctx, text, 15f, cBody, bold = true).apply {
+        setPadding(0, ctx.dp(16), 0, ctx.dp(8))
     }
 
     // ---------------- 刷新 ----------------
@@ -372,6 +468,9 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         val holidays = ArrayList<Int>()
         for (i in marks.indices) if (marks[i] != null && marks[i] != "补课") holidays.add(i + 1)
         grid.holidayDays = holidays.toIntArray()
+        // 今天所在列：只在本周高亮，翻到别的周就不亮
+        grid.todayWeekday =
+            if (shownWeek == ScheduleLogic.currentWeek()) ScheduleLogic.weekdayOf(CourseStore.today()) else 0
         val bk = ScheduleLogic.weekBreak(shownWeek)
         val tip = StringBuilder()
         if (bk != null) tip.append("这一周在").append(bk.label).append("：").append(bk.start).append(" — ").append(bk.end)
@@ -396,6 +495,19 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         val allDemo = courses.isNotEmpty() && courses.all { it.source == "demo" }
         demoTip.visibility = if (allDemo) View.VISIBLE else View.GONE
 
+        // 这一周有没有课：没有就上居中的空态（网格保留，仍能看到节次时间）
+        val hasClass = courses.any { ScheduleLogic.weekMatches(it.weeks, shownWeek) && it.id !in skips }
+        weekEmpty.removeAllViews()
+        weekEmpty.visibility = if (hasClass) View.GONE else View.VISIBLE
+        if (!hasClass) {
+            weekEmpty.addView(
+                emptyState("这一周没有课", "点「导入课表」从教务粘贴，或点「＋课程」手动添加"),
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+
         fillWeekSections(activities)
         fillDay(courses, activities)
         Reminder.scheduleAsync(ctx)
@@ -408,7 +520,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         todayBox.removeAllViews()
         val acts = activities.filter { it.date == today }.sortedBy { it.startTime }
         if (acts.isEmpty()) {
-            todayBox.addView(textView(ctx, "今天没有录入的活动。", 14f, ctx.color(R.color.text_secondary)))
+            todayBox.addView(textView(ctx, "今天没有录入的活动。", 12.5f, cSub))
         }
         for (a in acts) {
             todayBox.addView(
@@ -436,7 +548,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
             .filter { it.date > today && it.date <= end }
             .sortedBy { it.date + it.startTime }
         if (upcoming.isEmpty()) {
-            upcomingBox.addView(textView(ctx, "未来一周没有活动。", 14f, ctx.color(R.color.text_secondary)))
+            upcomingBox.addView(textView(ctx, "未来一周没有活动。", 12.5f, cSub))
         }
         for (a in upcoming) {
             upcomingBox.addView(
@@ -515,16 +627,10 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         dayList.removeAllViews()
         if (items.isEmpty()) {
             dayList.addView(
-                dayCard(ctx).apply {
-                    addView(
-                        textView(
-                            ctx,
-                            if (shownDate == today) "今天没有课，也没有活动。" else "这一天没有安排。",
-                            14f,
-                            ctx.color(R.color.text_secondary)
-                        )
-                    )
-                },
+                emptyState(
+                    if (shownDate == today) "今天没有课，也没有活动" else "这一天没有安排",
+                    "点「＋课程」手动加一节，或翻到下一周看看"
+                ),
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply { bottomMargin = ctx.dp(8) }
@@ -539,7 +645,8 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                 startHint(shownDate, it.end, it.start),
                 it.place,
                 isPassed(shownDate, it.end),
-                demo = it.course?.source == "demo"
+                demo = it.course?.source == "demo",
+                periodText = it.course?.let { c -> "第 ${c.startPeriod}-${c.endPeriod} 节" } ?: ""
             ) {
                 val c = it.course
                 if (c != null) showCourse(c) else it.activity?.let { a -> showActivity(a) }

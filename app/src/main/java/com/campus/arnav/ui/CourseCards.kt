@@ -20,6 +20,9 @@ import com.campus.arnav.R
  *
  * 手写体（res/font/long_cang.ttf）只留给日期大图卡和页面大标题；
  * 日程卡片里的课名/时间/地点一律用系统黑体，浅粉底上更清楚。
+ *
+ * 视觉方向：Ins 浅色·精致化 —— 白卡 + 1dp #F2E4EC 描边 + 圆角 18dp，
+ * 左侧 4dp 课程色竖条，右上角「第 N-M 节」小徽标。
  */
 
 private var handTypefaceCache: Typeface? = null
@@ -55,19 +58,59 @@ fun TextView.strikeThrough() {
     paintFlags = paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
 }
 
-/** 白底大圆角卡片（比 Ui.card 更松、更圆，贴近日视图的卡片观感）。 */
+// ---------------- Ins 色板 ----------------
+
+/** Ins pastel 课程色：比旧调色板再淡一档，整页更统一。 */
+private val insPastel = intArrayOf(
+    0xFFFAD6E4.toInt(), 0xFFCFE8F8.toInt(), 0xFFE2DAF6.toInt(), 0xFFD3EDDF.toInt(),
+    0xFFFFE0CC.toInt(), 0xFFF8DDEA.toInt(), 0xFFD6E6FA.toInt(), 0xFFF0D8E4.toInt()
+)
+
+/** 旧调色板（CourseStore.palette，库里已有课程存的是这组色），按位置换成新 pastel。 */
+private val legacyPastel = intArrayOf(
+    0xFFF8AECB.toInt(), 0xFFA8D8F2.toInt(), 0xFFC9BCEC.toInt(), 0xFFA9E3C9.toInt(),
+    0xFFFFC9A8.toInt(), 0xFFF3BBDB.toInt(), 0xFF9DCBF0.toInt(), 0xFFE7B7CE.toInt()
+)
+
+/** 显示用课程色：旧调色板映射到新 pastel；其它颜色与白色混合压淡，保持整页统一。 */
+internal fun coursePastel(color: Int): Int {
+    val i = legacyPastel.indexOf(color)
+    if (i >= 0) return insPastel[i]
+    return blendWithWhite(color, 0.62f)
+}
+
+/** 颜色与白色混合（keep=原色占比，越小越淡）。 */
+internal fun blendWithWhite(color: Int, keep: Float): Int {
+    val r = (Color.red(color) * keep + 255 * (1 - keep)).toInt().coerceIn(0, 255)
+    val g = (Color.green(color) * keep + 255 * (1 - keep)).toInt().coerceIn(0, 255)
+    val b = (Color.blue(color) * keep + 255 * (1 - keep)).toInt().coerceIn(0, 255)
+    return Color.rgb(r, g, b)
+}
+
+/** 颜色加深（factor<1）：课程块左侧竖条用，比 pastel 底深一档。 */
+internal fun darkerColor(color: Int, factor: Float): Int {
+    val r = (Color.red(color) * factor).toInt().coerceIn(0, 255)
+    val g = (Color.green(color) * factor).toInt().coerceIn(0, 255)
+    val b = (Color.blue(color) * factor).toInt().coerceIn(0, 255)
+    return Color.rgb(r, g, b)
+}
+
+/** 白底大圆角卡片（日视图 / 空态）：圆角 18dp + 1dp 描边 + elevation 2dp。 */
 fun dayCard(ctx: Context, padH: Int = 16, padV: Int = 12): LinearLayout = LinearLayout(ctx).apply {
     orientation = LinearLayout.VERTICAL
     setPadding(ctx.dp(padH), ctx.dp(padV), ctx.dp(padH), ctx.dp(padV + 2))
     background = GradientDrawable().apply {
-        cornerRadius = ctx.dp(20).toFloat()
+        cornerRadius = ctx.dp(18).toFloat()
         setColor(Color.WHITE)
+        setStroke(ctx.dp(1), 0xFFF2E4EC.toInt())
     }
     elevation = ctx.dp(2).toFloat()
 }
 
 /**
- * 一条日程卡片：彩色圆点 + 手写标题 + 时间（可带「1小时27分钟后开始」）+ 地点。
+ * 一条日程卡片：左侧 4dp 课程色竖条 + 课名 + 时间（可带「1小时27分钟后开始」）+ 地点，
+ * 右上角可带「第 N-M 节」小徽标。
+ *
  * [passed] 为 true 时整卡淡化并对标题/时间加删除线（照搬参考图里上完的课的样子）。
  * [demo] 为 true 时在标题右侧加一个「示例」小标签（演示课表一眼可辨）。
  */
@@ -80,22 +123,53 @@ fun scheduleCard(
     place: String,
     passed: Boolean,
     demo: Boolean = false,
+    periodText: String = "",
     onClick: (() -> Unit)? = null
 ): LinearLayout {
-    val card = dayCard(ctx)
+    val barColor = darkerColor(coursePastel(dotColor), 0.82f)
+    val card = LinearLayout(ctx).apply {
+        orientation = LinearLayout.HORIZONTAL
+        background = GradientDrawable().apply {
+            cornerRadius = ctx.dp(18).toFloat()
+            setColor(Color.WHITE)
+            setStroke(ctx.dp(1), 0xFFF2E4EC.toInt())
+        }
+        elevation = ctx.dp(2).toFloat()
+    }
+
+    // 左侧 4dp 课程色竖条：上下留 10dp，跟着卡片圆角走
+    val bar = View(ctx).apply { background = rounded(ctx, barColor, 2) }
+    card.addView(bar, LinearLayout.LayoutParams(ctx.dp(4), ViewGroup.LayoutParams.MATCH_PARENT).apply {
+        topMargin = ctx.dp(10)
+        bottomMargin = ctx.dp(10)
+        leftMargin = ctx.dp(10)
+    })
+
+    val body = LinearLayout(ctx).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(ctx.dp(10), ctx.dp(12), ctx.dp(14), ctx.dp(13))
+    }
+    card.addView(body, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
     val head = LinearLayout(ctx).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
     }
-    val dot = View(ctx).apply { background = rounded(ctx, dotColor, 4) }
-    head.addView(dot, LinearLayout.LayoutParams(ctx.dp(8), ctx.dp(8)).apply { rightMargin = ctx.dp(10) })
-    val name = textView(ctx, title, 16f, ctx.color(R.color.text_primary), bold = true).apply {
+    val name = textView(ctx, title, 15f, 0xFF3A3040.toInt(), bold = true).apply {
         maxLines = 2
         ellipsize = android.text.TextUtils.TruncateAt.END
         setLineSpacing(0f, 1.08f)
     }
     head.addView(name, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    if (periodText.isNotBlank()) {
+        val badge = textView(ctx, periodText, 10.5f, 0xFFA61E46.toInt()).apply {
+            background = rounded(ctx, 0xFFFFEAF2.toInt(), 8)
+            setPadding(ctx.dp(7), ctx.dp(2), ctx.dp(7), ctx.dp(2))
+        }
+        head.addView(badge, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { leftMargin = ctx.dp(8) })
+    }
     if (demo) {
         // 「示例」小标签：浅粉底 + accent_ink 深字（6.03:1，原 accent 只有 3.15:1）
         val badge = textView(ctx, "示例", 10f, ctx.color(R.color.accent_ink)).apply {
@@ -106,22 +180,22 @@ fun scheduleCard(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { leftMargin = ctx.dp(6) })
     }
-    card.addView(head)
+    body.addView(head)
 
     val timeLine = if (hint.isBlank()) timeText else "$timeText  |  $hint"
-    val time = textView(ctx, timeLine, 13f, ctx.color(R.color.text_secondary)).apply {
-        setPadding(ctx.dp(18), ctx.dp(6), 0, 0)
+    val time = textView(ctx, timeLine, 12.5f, 0xFF7A6A82.toInt()).apply {
+        setPadding(0, ctx.dp(6), 0, 0)
     }
-    card.addView(time)
+    body.addView(time)
 
     if (place.isNotBlank()) {
-        card.addView(textView(ctx, place, 13f, ctx.color(R.color.text_secondary)).apply {
-            setPadding(ctx.dp(18), ctx.dp(2), 0, 0)
+        body.addView(textView(ctx, place, 12.5f, 0xFF7A6A82.toInt()).apply {
+            setPadding(0, ctx.dp(3), 0, 0)
         })
     }
 
     if (passed) {
-        card.alpha = 0.38f
+        card.alpha = 0.40f
         name.strikeThrough()
         time.strikeThrough()
     }
@@ -154,11 +228,11 @@ fun buildDayHero(
 ): FrameLayout {
     val hero = FrameLayout(ctx).apply {
         background = GradientDrawable().apply {
-            cornerRadius = ctx.dp(24).toFloat()
+            cornerRadius = ctx.dp(22).toFloat()
             setColor(Color.parseColor("#4A7FB5"))
         }
         clipToOutline = true
-        elevation = ctx.dp(3).toFloat()
+        elevation = ctx.dp(2).toFloat()
     }
 
     val photo = ImageView(ctx).apply {

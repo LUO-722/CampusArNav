@@ -8,14 +8,19 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.text.Editable
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -52,6 +57,18 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     private val listBox = LinearLayout(ctx)
     private val query = editText(ctx, "搜楼名：明志楼、风华楼、精工楼…")
 
+    /** 起点卡片的值（「我的位置」/「南门」）。 */
+    private val startValue = textView(ctx, "南门", 14.5f, ctx.color(R.color.text_primary))
+
+    /** 终点卡片的值（选好目的地后显示楼名）。 */
+    private val endValue = textView(ctx, "点下方楼栋，或搜一个目的地", 14.5f, ctx.color(R.color.text_hint))
+
+    /** 地图卡上的悬浮进度条：左侧剩余距离 + 右侧「跟随 / AR / 外部地图」。 */
+    private var progressBar: View? = null
+    private var guideText: TextView? = null
+    /** 路线步骤是否展开（默认只显示 4 步）。 */
+    private var stepsExpanded = false
+
     private var keyword = ""
     private var destName: String? = null
     private var path: CampusPath? = null
@@ -73,7 +90,6 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
     /** 起点模式：true = 我的位置（有定位才生效），false = 南门。 */
     private var fromMe = false
-    private var guideText: android.widget.TextView? = null
     private var routePoints: List<Pair<Double, Double>> = emptyList()
 
     private var following = false
@@ -83,53 +99,50 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     private var fixBearing: Float = -1f
     private var haveFix = false
 
-    private val startLabel = textView(ctx, "起点：南门", 12f, ctx.color(R.color.accent_ink), bold = true)
+    /** 测绘状态（「未在测绘」/「测绘中 · 已存 N 条」），必须在 init 之前初始化。 */
+    private var surveyStatus: TextView = textView(ctx, "未在测绘", 11.5f, ctx.color(R.color.text_hint))
 
-    /** 测绘状态行（「未在测绘」/「测绘中 · N 点」），必须在 init 之前初始化。 */
-    private val surveyStatus = textView(ctx, "未在测绘", 11f, ctx.color(R.color.text_secondary))
-
-    // ---- 底图切换（选择记忆在 zhijia_map，下次进来沿用） ----
-    private val mapPrefs = ctx.getSharedPreferences("zhijia_map", Context.MODE_PRIVATE)
-
-    /** `campus_ortho` = 卫星图（默认），`campus_guide` = 官方导览图。 */
-    private var baseKind: String = "campus_ortho"
-    private lateinit var chipOrtho: TextView
-    private lateinit var chipGuide: TextView
+    /** 轨迹条数 chip。 */
+    private var surveyChip: TextView? = null
 
     init {
         orientation = VERTICAL
-        // 不铺纯色底，让 MainShell 的 #FFF1F7→#EDF7FF 渐变透出来
+        // 不铺纯色底，让 MainShell 的 #FFF8FB→#EFF7FE 渐变透出来
         setBackgroundColor(Color.TRANSPARENT)
-        setPadding(ctx.dp(14), ctx.dp(10), ctx.dp(14), ctx.dp(6))
+        setPadding(ctx.dp(16), ctx.dp(10), ctx.dp(16), ctx.dp(8))
 
+        // ---- 顶部栏：装饰字体标题 + 两个 34dp 圆形按钮 ----
         val head = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         val titleCol = LinearLayout(ctx).apply { orientation = VERTICAL }
-        titleCol.addView(textView(ctx, "校园导航", 22f, ctx.color(R.color.text_primary), bold = true))
-        titleCol.addView(textView(ctx, "离线路网 · 2D 地图 · 步行路线", 11f, ctx.color(R.color.text_secondary)))
+        titleCol.addView(titleText(ctx, "校园导航"))
+        titleCol.addView(textView(ctx, "卫星影像底图 · 沿校内道路步行导航", 11.5f, ctx.color(R.color.text_hint)))
         head.addView(titleCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        head.addView(button(ctx, "图例", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
-            setOnClickListener { showLegend() }
-        }, LinearLayout.LayoutParams(ctx.dp(56), ctx.dp(34)).apply { rightMargin = ctx.dp(6) })
-        head.addView(button(ctx, "更多", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
-            setOnClickListener { showMore() }
-        }, LinearLayout.LayoutParams(ctx.dp(72), ctx.dp(34)))
+        head.addView(circleText("图例", "查看图例") { showLegend() }, LinearLayout.LayoutParams(ctx.dp(34), ctx.dp(34)).apply {
+            rightMargin = ctx.dp(8)
+        })
+        head.addView(circleText("更多", "更多导航工具") { showMore() }, LinearLayout.LayoutParams(ctx.dp(34), ctx.dp(34)))
         addView(head)
 
-        // 实测测绘：走一遍校园道路，自动记录 GPS 轨迹并并入路网
-        addView(surveyRow(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = ctx.dp(6)
+        // ---- 实测测绘卡 ----
+        addView(surveyCard(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = ctx.dp(10)
         })
 
-        // 地图卡片（底图之上叠加：图例、指北针、缩放）
-        val mapCard = card(ctx, 12)
-        mapCard.setPadding(ctx.dp(6), ctx.dp(6), ctx.dp(6), ctx.dp(6))
-
-        val mapFrame = FrameLayout(ctx)
+        // ---- 地图卡：白底 20dp 圆角 + 1dp 描边 + 2dp 阴影 + 4dp 内边距，地图内容裁圆角 ----
+        val mapCard = card(ctx, 4)
+        val mapFrame = FrameLayout(ctx).apply {
+            background = rounded(ctx, ctx.color(R.color.bg_card), 16)
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, ctx.dp(16).toFloat())
+                }
+            }
+        }
         mapFrame.addView(map, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-
 
         val compass = CompassView(ctx).apply {
             isClickable = true
@@ -142,12 +155,12 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         mapFrame.addView(compass, FrameLayout.LayoutParams(ctx.dp(46), ctx.dp(46)).apply {
             gravity = Gravity.BOTTOM or Gravity.START
             leftMargin = ctx.dp(8)
-            bottomMargin = ctx.dp(8)
+            bottomMargin = ctx.dp(58)
         })
 
         val zoomCol = LinearLayout(ctx).apply { orientation = VERTICAL }
-        zoomCol.addView(zoomButton("＋") { map.zoomBy(1.4f) }, LinearLayout.LayoutParams(ctx.dp(36), ctx.dp(36)))
-        zoomCol.addView(zoomButton("－") { map.zoomBy(0.7f) }, LinearLayout.LayoutParams(ctx.dp(36), ctx.dp(36)).apply {
+        zoomCol.addView(circleText("＋", "放大") { map.zoomBy(1.4f) }, LinearLayout.LayoutParams(ctx.dp(34), ctx.dp(34)))
+        zoomCol.addView(circleText("－", "缩小") { map.zoomBy(0.7f) }, LinearLayout.LayoutParams(ctx.dp(34), ctx.dp(34)).apply {
             topMargin = ctx.dp(6)
         })
         mapFrame.addView(zoomCol, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -155,9 +168,44 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
             rightMargin = ctx.dp(8)
         })
 
+        // ---- 悬浮进度条：距底 10dp、左右 10dp、高 40dp、白底 90%、圆角 12dp ----
+        val bar = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(ctx.dp(12), 0, ctx.dp(6), 0)
+            background = GradientDrawable().apply {
+                cornerRadius = ctx.dp(12).toFloat()
+                setColor(0xE6FFFFFF.toInt())
+                setStroke(ctx.dp(1), ctx.color(R.color.border))
+            }
+            visibility = View.GONE
+        }
+        guideText = textView(ctx, "", 15f, ctx.color(R.color.accent_ink), bold = true).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        guideText?.let { bar.addView(it, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)) }
+        bar.addView(actionCircle("跟随", "跟随定位") { startFollow() }, LinearLayout.LayoutParams(ctx.dp(28), ctx.dp(28)).apply {
+            leftMargin = ctx.dp(4)
+        })
+        bar.addView(actionCircle("AR", "AR 实景") { destName?.let { openAr(it) } }, LinearLayout.LayoutParams(ctx.dp(28), ctx.dp(28)).apply {
+            leftMargin = ctx.dp(6)
+        })
+        bar.addView(actionCircle("外部", "外部地图") {
+            destName?.let { name -> findBuilding(name)?.let { b -> openAmap(b.lon, b.lat, b.name, true) } }
+        }, LinearLayout.LayoutParams(ctx.dp(28), ctx.dp(28)).apply {
+            leftMargin = ctx.dp(6)
+        })
+        progressBar = bar
+        mapFrame.addView(bar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(40)).apply {
+            gravity = Gravity.BOTTOM
+            leftMargin = ctx.dp(10)
+            rightMargin = ctx.dp(10)
+            bottomMargin = ctx.dp(10)
+        })
+
         mapCard.addView(mapFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(300)))
-        // 底图是竖版（约 729m × 984m），360dp 宽时给 300dp 高会左右留出大片空白：
-        // 这里按底图宽高比把地图卡调高，让卫星图真正铺满，最多占屏高 58%。
+        // 底图是竖版（约 729m × 984m），按底图宽高比调高地图卡，最多占屏高 40%。
         mapFrame.post {
             val w = mapFrame.width
             if (w > 0) {
@@ -172,41 +220,52 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
             }
         }
         addView(mapCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = ctx.dp(8)
+            topMargin = ctx.dp(10)
         })
         map.setOnBuildingTap { shape -> planFuzzy(shape.name) }
 
-        // 比例尺说明（不出现任何外部地图服务名）
-        addView(textView(ctx, "卫星影像底图 · 路线沿校内道路 · 以现场为准", 10f, ctx.color(R.color.text_secondary)).apply {
-            setPadding(ctx.dp(2), ctx.dp(4), 0, 0)
+        // 底图脚注（比例尺说明已并入悬浮条）
+        addView(textView(ctx, "卫星影像底图 · 路线沿校内道路 · 以现场为准", 10.5f, ctx.color(R.color.text_hint)).apply {
+            setPadding(ctx.dp(2), ctx.dp(6), 0, 0)
         })
 
-        // 起点 / 定位 / 清除
+        // ---- 起点 / 终点：两行卡片式输入 ----
+        addView(inputRow("起点", startValue, ghostSmall("切换起点") { toggleStart() }), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = ctx.dp(10)
+        })
+        addView(inputRow("终点", endValue, primaryPill("去这里") { goEnd() }), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = ctx.dp(8)
+        })
+
+        // ---- 定位 / 清除（小号 ghost 按钮，保持原入口） ----
         val tools = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, ctx.dp(8), 0, ctx.dp(4))
         }
-        startLabel.setPadding(ctx.dp(10), ctx.dp(6), ctx.dp(10), ctx.dp(6))
-        startLabel.background = rounded(ctx, ctx.color(R.color.accent_soft), 12)
-        startLabel.setOnClickListener { toggleStart() }
-        tools.addView(startLabel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dp(32)))
-        tools.addView(button(ctx, "定位", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
-            setOnClickListener { locate() }
-        }, LinearLayout.LayoutParams(0, ctx.dp(32), 1f).apply { leftMargin = ctx.dp(6) })
-        tools.addView(button(ctx, "清除", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
-            setOnClickListener { clearRoute() }
-        }, LinearLayout.LayoutParams(0, ctx.dp(32), 1f).apply { leftMargin = ctx.dp(6) })
-        addView(tools)
+        tools.addView(ghostSmall("定位我的位置") { locate() }, LinearLayout.LayoutParams(0, ctx.dp(32), 1f))
+        tools.addView(ghostSmall("清除路线") { clearRoute() }, LinearLayout.LayoutParams(0, ctx.dp(32), 1f).apply {
+            leftMargin = ctx.dp(8)
+        })
+        addView(tools, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = ctx.dp(8)
+        })
 
-        // 路线卡（无路线时隐藏）
+        // ---- 路线卡（无路线时隐藏） ----
         routeHolder.orientation = VERTICAL
         routeHolder.visibility = View.GONE
-        addView(routeHolder, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        addView(routeHolder, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = ctx.dp(10)
+        })
 
-        // 搜索
+        // ---- 搜索框：白底 999 圆角 ----
+        query.background = GradientDrawable().apply {
+            cornerRadius = ctx.dp(999).toFloat()
+            setColor(ctx.color(R.color.bg_card))
+            setStroke(ctx.dp(1), ctx.color(R.color.border))
+        }
+        query.setPadding(ctx.dp(16), ctx.dp(12), ctx.dp(16), ctx.dp(12))
         addView(query, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = ctx.dp(6)
+            topMargin = ctx.dp(10)
         })
         query.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
@@ -221,13 +280,13 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         val scroll = ScrollView(ctx)
         scroll.isFillViewport = true
         listBox.orientation = VERTICAL
-        listBox.setPadding(0, ctx.dp(4), 0, ctx.dp(8))
+        listBox.setPadding(0, ctx.dp(8), 0, ctx.dp(8))
         scroll.addView(listBox)
         addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         CampusRoads.load(ctx)
         map.setVector(CampusVector.load(ctx))
-                map.setRoads(CampusRoads.segments(ctx))
+        map.setRoads(CampusRoads.segments(ctx))
         ensureBaseMap()
         updateExtraPaths()
         renderSurveyState()
@@ -240,24 +299,44 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
     // ---------------- 实测测绘 ----------------
 
-    /** 「测绘」一行：开始/结束记录 + 轨迹数 + 并入路网。 */
-    private fun surveyRow(): LinearLayout {
-        val row = LinearLayout(ctx).apply {
+    /** 「实地测绘」卡：标题 + 状态 + 两个 34dp 胶囊按钮 + 轨迹 chip。 */
+    private fun surveyCard(): LinearLayout {
+        val box = LinearLayout(ctx).apply {
+            orientation = VERTICAL
+            setPadding(ctx.dp(14), ctx.dp(12), ctx.dp(14), ctx.dp(12))
+            background = GradientDrawable().apply {
+                cornerRadius = ctx.dp(18).toFloat()
+                setColor(ctx.color(R.color.bg_card))
+                setStroke(ctx.dp(1), ctx.color(R.color.border))
+            }
+            elevation = ctx.dp(2).toFloat()
+            clipToPadding = false
+        }
+        val head = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        row.addView(button(ctx, "开始测绘", ctx.color(R.color.accent), ctx.color(R.color.bg_card)).apply {
-            tag = "surveyStart"
-            setOnClickListener { surveyStart() }
-        }, LinearLayout.LayoutParams(0, ctx.dp(34), 1f))
-        row.addView(button(ctx, "结束并并入", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
-            tag = "surveyStop"
-            setOnClickListener { surveyStop() }
-        }, LinearLayout.LayoutParams(0, ctx.dp(34), 1f).apply { leftMargin = ctx.dp(6) })
-        row.addView(surveyStatus, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        head.addView(sectionTitle(ctx, "实地测绘"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        head.addView(surveyStatus)
+        box.addView(head)
+
+        surveyChip = chip(ctx, "轨迹 0 条", true).apply { visibility = View.GONE }
+        surveyChip?.let {
+            box.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = ctx.dp(6)
+            })
+        }
+
+        val acts = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            setPadding(0, ctx.dp(8), 0, 0)
+        }
+        acts.addView(styledBtn("开始测绘", true) { surveyStart() }.apply { tag = "surveyStart" }, LinearLayout.LayoutParams(0, ctx.dp(34), 1f))
+        acts.addView(styledBtn("结束并并入", false) { surveyStop() }.apply { tag = "surveyStop" }, LinearLayout.LayoutParams(0, ctx.dp(34), 1f).apply {
             leftMargin = ctx.dp(8)
         })
-        return row
+        box.addView(acts)
+        return box
     }
 
     init {
@@ -291,17 +370,18 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     private fun renderSurveyState() {
         val n = TrackRecorder.list(ctx).size
         val rec = TrackRecorder.isRecording()
-        val text = if (rec) "测绘中 · 已存 $n 条" else if (n > 0) "轨迹 $n 条" else ""
-        surveyStatus.text = text
-        surveyStatus.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
-        (findViewWithTag<View>("surveyStart") as? View)?.let {
-            it.isEnabled = !rec
-            it.alpha = if (rec) 0.45f else 1f
+        surveyStatus.text = if (rec) "测绘中 · 已存 $n 条" else "未在测绘"
+        surveyStatus.setTextColor(ctx.color(if (rec) R.color.success else R.color.text_hint))
+        surveyChip?.let { c ->
+            if (n > 0) {
+                c.text = "轨迹 $n 条"
+                c.visibility = View.VISIBLE
+            } else {
+                c.visibility = View.GONE
+            }
         }
-        (findViewWithTag<View>("surveyStop") as? View)?.let {
-            it.isEnabled = rec
-            it.alpha = if (rec) 1f else 0.45f
-        }
+        (findViewWithTag<View>("surveyStart") as? TextView)?.let { paintButton(it, true, !rec) }
+        (findViewWithTag<View>("surveyStop") as? TextView)?.let { paintButton(it, false, rec) }
     }
 
     /** 把绘过的轨迹以浅色虚线画在地图上。 */
@@ -345,14 +425,6 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
             .show()
     }
 
-    /** 缩放按钮：以视图中心为锚，CampusMapView 内已 clamp 到合理范围。 */
-    private fun zoomButton(label: String, onTap: () -> Unit): TextView =
-        textView(ctx, label, 18f, ctx.color(R.color.accent_ink), bold = true).apply {
-            gravity = Gravity.CENTER
-            background = rounded(ctx, ctx.color(R.color.bg_card), 18)
-            setOnClickListener { onTap() }
-        }
-
     /** 无障碍：地图当前底图 + 目的地 + 路线长度，随状态更新。 */
     private fun updateA11y() {
         val kindText = "自绘平面图"
@@ -387,7 +459,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
             fixLat = RouteRepository.gate.lat
             fixLon = RouteRepository.gate.lon
             haveFix = false
-            startLabel.text = "起点：南门"
+            setStart("南门")
             if (destName != null) destName?.let { plan(it) }
         }
     }
@@ -425,7 +497,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
             return
         }
         fromMe = true
-        startLabel.text = "起点：我的位置"
+        setStart("我的位置")
         val dest = destName ?: return
         updateGuideFrom(fix.lat, fix.lon)
         // 跟随模式：地图跟着蓝点走，不重算路线（以前每个定位点都重排页面）
@@ -476,7 +548,12 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         fixBearing = -1f
         fixLat = RouteRepository.gate.lat
         fixLon = RouteRepository.gate.lon
-        startLabel.text = "起点：南门"
+        setStart("南门")
+        endValue.text = "点下方楼栋，或搜一个目的地"
+        endValue.setTextColor(ctx.color(R.color.text_hint))
+        stepsExpanded = false
+        showProgress(false)
+        guideText?.text = ""
         map.setMyLocation(null, null, null)
         map.setRoute(emptyList())
         map.setDestination(null, null, null)
@@ -508,7 +585,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         if (fellBack) {
             fromMe = false
             haveFix = false
-            startLabel.text = "起点：南门"
+            setStart("南门")
             ctx.toast("定位点离校园路网太远，已改从南门算起")
         }
         destName = name
@@ -535,53 +612,44 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
     private fun renderRoute(p: CampusPath, name: String) {
         routeHolder.removeAllViews()
-
-        val wrap = card(ctx, 12)
-        wrap.setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), ctx.dp(10))
-
-        val head = LinearLayout(ctx).apply {
+        val wrap = LinearLayout(ctx).apply {
             orientation = VERTICAL
+            setPadding(ctx.dp(14), ctx.dp(12), ctx.dp(14), ctx.dp(12))
+            background = GradientDrawable().apply {
+                cornerRadius = ctx.dp(20).toFloat()
+                setColor(ctx.color(R.color.bg_card))
+                setStroke(ctx.dp(1), ctx.color(R.color.border))
+            }
+            elevation = ctx.dp(2).toFloat()
         }
-        head.addView(textView(ctx, "去 $name", 15f, ctx.color(R.color.text_primary), bold = true))
-        head.addView(
-            textView(
-                ctx,
-                "${p.distanceMeters} 米 · 沿校内道路步行约 ${(p.distanceMeters / 80).coerceAtLeast(1)} 分钟",
-                11f,
-                ctx.color(R.color.text_secondary)
-            )
-        )
-        wrap.addView(head)
+        wrap.addView(sectionTitle(ctx, "路线"))
+        wrap.addView(textView(ctx, "去 $name · ${p.distanceMeters} 米 · 约 ${(p.distanceMeters / 80).coerceAtLeast(1)} 分钟", 12.5f, ctx.color(R.color.text_secondary)).apply {
+            setPadding(0, ctx.dp(2), 0, ctx.dp(4))
+        })
 
-        val guide = textView(ctx, "按「跟随」开始实时引导：会显示剩余距离和下一步。", 11f, ctx.color(R.color.accent_ink)).apply {
-            setPadding(0, ctx.dp(3), 0, 0)
+        val shown = if (stepsExpanded || p.steps.size <= 4) p.steps else p.steps.take(4)
+        for ((i, s) in shown.withIndex()) {
+            if (i > 0) wrap.addView(divider(ctx))
+            wrap.addView(stepRow(i + 1, s))
         }
-        guideText = guide
-        wrap.addView(guide)
+        if (p.steps.size > 4) {
+            wrap.addView(textView(ctx, if (stepsExpanded) "收起（共 ${p.steps.size} 步）" else "还有 ${p.steps.size - 4} 步 · 展开", 12f, ctx.color(R.color.accent_ink)).apply {
+                setPadding(0, ctx.dp(10), 0, 0)
+                setOnClickListener {
+                    stepsExpanded = !stepsExpanded
+                    renderRoute(p, name)
+                }
+            })
+        }
 
-        val steps = p.steps.take(3)
-        for ((i, s) in steps.withIndex()) {
-            wrap.addView(textView(ctx, "${i + 1}. $s", 11f, ctx.color(R.color.text_primary)))
+        endValue.text = name
+        endValue.setTextColor(ctx.color(R.color.text_primary))
+        showProgress(true)
+        if (haveFix) {
+            updateGuideFrom(fixLat, fixLon)
+        } else {
+            guideText?.text = "剩余 ${p.distanceMeters} 米 · 约 ${(p.distanceMeters / 80).coerceAtLeast(1)} 分钟"
         }
-        if (p.steps.size > steps.size) {
-            wrap.addView(textView(ctx, "…共 ${p.steps.size} 步", 10f, ctx.color(R.color.text_secondary)))
-        }
-
-        val acts = LinearLayout(ctx).apply {
-            orientation = HORIZONTAL
-            setPadding(0, ctx.dp(6), 0, 0)
-        }
-        acts.addView(button(ctx, "跟随", ctx.color(R.color.accent), Color.WHITE).apply {
-            setOnClickListener { startFollow() }
-        }, LinearLayout.LayoutParams(0, ctx.dp(34), 1f))
-        acts.addView(button(ctx, "AR", ctx.color(R.color.bg_card), ctx.color(R.color.accent_ink)).apply {
-            setOnClickListener { openAr(name) }
-        }, LinearLayout.LayoutParams(0, ctx.dp(34), 0.7f).apply { leftMargin = ctx.dp(6) })
-        acts.addView(button(ctx, "外部地图", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
-            setOnClickListener { findBuilding(name)?.let { openAmap(it.lon, it.lat, it.name, true) } }
-        }, LinearLayout.LayoutParams(0, ctx.dp(34), 0.7f).apply { leftMargin = ctx.dp(6) })
-        wrap.addView(acts)
-
         routeHolder.addView(wrap)
         routeHolder.visibility = View.VISIBLE
     }
@@ -593,29 +661,37 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
             it.name.contains(keyword, true) || it.subtitle.contains(keyword, true)
         }
         if (list.isEmpty()) {
-            listBox.addView(textView(ctx, "没有匹配的楼栋。", 13f, ctx.color(R.color.text_secondary)))
+            listBox.addView(textView(ctx, "没有匹配的楼栋。", 13f, ctx.color(R.color.text_secondary)).apply {
+                setPadding(ctx.dp(6), ctx.dp(12), 0, 0)
+            })
             return
         }
-        for (b in list) {
-            val row = card(ctx, 12).apply {
-                setPadding(ctx.dp(14), ctx.dp(10), ctx.dp(14), ctx.dp(10))
-                val head2 = LinearLayout(ctx).apply {
-                    orientation = HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                }
-                head2.addView(
-                    textView(ctx, b.name, 15f, ctx.color(R.color.text_primary), bold = true),
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                )
-                head2.addView(textView(ctx, "去这里", 11f, ctx.color(R.color.accent_ink)))
-                addView(head2)
-                addView(textView(ctx, b.subtitle, 11f, ctx.color(R.color.text_secondary)))
+        val gate = RouteRepository.gate
+        val cardBox = LinearLayout(ctx).apply {
+            orientation = VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = ctx.dp(20).toFloat()
+                setColor(ctx.color(R.color.bg_card))
+                setStroke(ctx.dp(1), ctx.color(R.color.border))
             }
-            row.setOnClickListener { plan(b.name) }
-            listBox.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = ctx.dp(6)
-            })
+            elevation = ctx.dp(2).toFloat()
         }
+        for ((i, b) in list.withIndex()) {
+            if (i > 0) cardBox.addView(divider(ctx))
+            val d = GeoUtils.distanceMeters(gate.lat, gate.lon, b.lat, b.lon).toInt()
+            val min = (d / 80.0).coerceAtLeast(1.0).toInt()
+            val row = LinearLayout(ctx).apply {
+                orientation = HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(ctx.dp(14), 0, ctx.dp(14), 0)
+            }
+            row.addView(dot(), LinearLayout.LayoutParams(ctx.dp(8), ctx.dp(8)).apply { rightMargin = ctx.dp(10) })
+            row.addView(textView(ctx, b.name, 14.5f, ctx.color(R.color.text_primary)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(textView(ctx, "距南门 $d 米 · 约 $min 分钟", 12f, ctx.color(R.color.text_secondary)))
+            row.setOnClickListener { plan(b.name) }
+            cardBox.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(56)))
+        }
+        listBox.addView(cardBox, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
     // ---------------- 其它入口 ----------------
@@ -680,6 +756,168 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
     fun straightMeters(name: String): Int {
         val b = findBuilding(name) ?: return 0
         return GeoUtils.distanceMeters(RouteRepository.gate.lat, RouteRepository.gate.lon, b.lat, b.lon).toInt()
+    }
+
+    // ---------------- 视图小件（只做样式，不碰地图与业务） ----------------
+
+    /** 起点/终点卡片式输入行：左 label + 值，右侧动作。 */
+    private fun inputRow(label: String, value: TextView, action: View): LinearLayout {
+        val row = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(ctx.dp(14), ctx.dp(8), ctx.dp(10), ctx.dp(8))
+            background = GradientDrawable().apply {
+                cornerRadius = ctx.dp(18).toFloat()
+                setColor(ctx.color(R.color.bg_card))
+                setStroke(ctx.dp(1), ctx.color(R.color.border))
+            }
+        }
+        val col = LinearLayout(ctx).apply { orientation = VERTICAL }
+        col.addView(textView(ctx, label, 11.5f, ctx.color(R.color.text_hint)))
+        col.addView(value)
+        row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(action, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dp(34)).apply {
+            leftMargin = ctx.dp(8)
+        })
+        return row
+    }
+
+    /** 34dp 圆形文字按钮（顶部栏 / 缩放）。 */
+    private fun circleText(text: String, note: String, onTap: () -> Unit): TextView = TextView(ctx).apply {
+        this.text = text
+        textSize = 12f
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        setTextColor(ctx.color(R.color.text_primary))
+        contentDescription = note
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(ctx.color(R.color.bg_card))
+            setStroke(ctx.dp(1), ctx.color(R.color.border))
+        }
+        setOnClickListener { onTap() }
+    }
+
+    /** 悬浮条上的 28dp 圆形动作按钮（跟随 / AR / 外部）。 */
+    private fun actionCircle(text: String, note: String, onTap: () -> Unit): TextView = TextView(ctx).apply {
+        this.text = text
+        textSize = 10.5f
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        setTextColor(ctx.color(R.color.accent_ink))
+        contentDescription = note
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(ctx.color(R.color.accent_soft))
+        }
+        setOnClickListener { onTap() }
+    }
+
+    /** 小号 ghost 胶囊（切换起点 / 定位 / 清除）。 */
+    private fun ghostSmall(text: String, onTap: () -> Unit): TextView = TextView(ctx).apply {
+        this.text = text
+        textSize = 12f
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        setTextColor(ctx.color(R.color.accent_ink))
+        background = GradientDrawable().apply {
+            cornerRadius = ctx.dp(999).toFloat()
+            setColor(ctx.color(R.color.bg_card))
+            setStroke(ctx.dp(1), ctx.color(R.color.border))
+        }
+        setPadding(ctx.dp(12), 0, ctx.dp(12), 0)
+        setOnClickListener { onTap() }
+    }
+
+    /** 主胶囊按钮（去这里 / 开始测绘）。 */
+    private fun primaryPill(text: String, onTap: () -> Unit): TextView = styledBtn(text, true, onTap)
+
+    /** 胶囊按钮：主按钮粉底白字，次按钮白底深粉字；禁用改灰底灰字。 */
+    private fun styledBtn(text: String, primary: Boolean, onTap: () -> Unit): TextView = TextView(ctx).apply {
+        this.text = text
+        textSize = 13.5f
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        setTypeface(typeface, Typeface.BOLD)
+        setPadding(ctx.dp(14), 0, ctx.dp(14), 0)
+        paintButton(this, primary, true)
+        setOnClickListener { onTap() }
+    }
+
+    private fun paintButton(v: TextView, primary: Boolean, enabled: Boolean) {
+        v.isEnabled = enabled
+        v.isClickable = enabled
+        v.setTextColor(
+            when {
+                !enabled -> ctx.color(R.color.text_hint)
+                primary -> Color.WHITE
+                else -> ctx.color(R.color.accent_ink)
+            }
+        )
+        v.background = GradientDrawable().apply {
+            cornerRadius = ctx.dp(999).toFloat()
+            when {
+                !enabled -> {
+                    setColor(ctx.color(R.color.border))
+                    setStroke(ctx.dp(1), ctx.color(R.color.border))
+                }
+                primary -> {
+                    setColor(ctx.color(R.color.accent))
+                    setStroke(ctx.dp(1), ctx.color(R.color.accent))
+                }
+                else -> {
+                    setColor(ctx.color(R.color.bg_card))
+                    setStroke(ctx.dp(1), ctx.color(R.color.border))
+                }
+            }
+        }
+    }
+
+    /** 路线步骤行：22dp 圆形序号 + 13.5sp 文案。 */
+    private fun stepRow(n: Int, text: String): LinearLayout {
+        val row = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, ctx.dp(10), 0, ctx.dp(10))
+        }
+        val idx = TextView(ctx).apply {
+            this.text = "$n"
+            textSize = 11f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            setTextColor(ctx.color(R.color.accent_ink))
+            setTypeface(typeface, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(ctx.color(R.color.accent_soft))
+            }
+        }
+        row.addView(idx, LinearLayout.LayoutParams(ctx.dp(22), ctx.dp(22)).apply { rightMargin = ctx.dp(10) })
+        row.addView(textView(ctx, text, 13.5f, ctx.color(R.color.text_primary)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        return row
+    }
+
+    /** 楼栋列表左侧 8dp 圆点。 */
+    private fun dot(): View = View(ctx).apply {
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(ctx.color(R.color.accent))
+        }
+    }
+
+    private fun showProgress(on: Boolean) {
+        progressBar?.visibility = if (on) View.VISIBLE else View.GONE
+    }
+
+    private fun setStart(label: String) {
+        startValue.text = label
+        startValue.setTextColor(ctx.color(R.color.text_primary))
+    }
+
+    /** 终点行的「去这里」：没选目的地先提示。 */
+    private fun goEnd() {
+        val d = destName
+        if (d == null) ctx.toast("先点下面的楼栋，或搜索一个目的地") else plan(d)
     }
 }
 

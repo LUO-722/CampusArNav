@@ -17,6 +17,9 @@ import com.campus.arnav.data.ScheduleLogic
 /**
  * 自绘课程表网格：7 天 × 12 节，课程按周次过滤后画成色块。
  * 宽度固定为 7*52dp + 40dp，由 HorizontalScrollView 承载。
+ *
+ * 视觉：Ins 浅色·精致化 —— 网格线只有 #F2E4EC 一档，课程块是 pastel 圆角块 + 左侧深色竖条，
+ * 活动块继续保持粉色虚线（和实心课程块一眼区分）。正文全部系统字体。
  */
 class TimetableGridView @JvmOverloads constructor(
     context: Context,
@@ -36,6 +39,9 @@ class TimetableGridView @JvmOverloads constructor(
     /** 节假日所在的星期几（1..7），这些列会加一层淡色底。 */
     var holidayDays: IntArray = IntArray(0)
         set(v) { field = v; invalidate() }
+    /** 今天所在的星期几（1..7）；0 表示当前显示的不是本周，不画「今天」高亮。 */
+    var todayWeekday: Int = 0
+        set(v) { field = v; invalidate() }
 
     var onCourseTap: ((Course) -> Unit)? = null
     var onActivityTap: ((Activity) -> Unit)? = null
@@ -47,94 +53,116 @@ class TimetableGridView @JvmOverloads constructor(
     private val headerH = 30 * density
     private val rowH = 54 * density
 
-    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
+    // ---- Ins 色板 ----
+    private val cLine = 0xFFF2E4EC.toInt()        // 网格线
+    private val cColLine = 0xFFFAF0F5.toInt()     // 列间淡线
+    private val cBody = 0xFF3A3040.toInt()        // 正文 / 表头
+    private val cInk = 0xFFA61E46.toInt()         // 深主色文字
+    private val cTodayBg = 0xFFFFEAF2.toInt()     // 浅粉底
+    private val cHolidayBg = 0xFFFFF3F8.toInt()   // 节假日淡粉底
+    private val cHolidayMark = 0xFFD98324.toInt() // 节假日标记
+    private val cTimeStart = 0xFFA99CB0.toInt()   // 开始时间
+    private val cTimeEnd = 0xFFC9BFCF.toInt()     // 结束时间
+    private val cName = 0xFF3D3340.toInt()        // 课程名
+    private val cLoc = 0xFF5D5364.toInt()         // 地点
+    private val cActTitle = 0xFFA61E46.toInt()    // 活动标题
+    private val cActTime = 0xFFB0647C.toInt()     // 活动时间
+    private val cPrimary = 0xFFE8447A.toInt()     // 主色
+
+    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFF4DEE8.toInt()
+        color = cLine
+        strokeWidth = 1 * density
+        style = Paint.Style.STROKE
+    }
+    /** 列间淡线：只做「表格感」，不抢课程的视觉重量。 */
+    private val colLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = cColLine
         strokeWidth = 1 * density
         style = Paint.Style.STROKE
     }
     private val headPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF74637C.toInt()
-        textSize = 11 * density
+        color = cBody
+        textSize = 13 * density
         textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
     }
     private val periodPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF74637C.toInt()
+        color = cBody
         textSize = 11 * density
         textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
     }
-    /** 节次时间：08:15 这类小字，画在节次号下面。 */
-    private val holidayPaint = Paint().apply { color = 0x14E8447A }
+    /** 左侧时间列：本节开始时间（9.5sp 淡）与结束时间（9sp 更淡）。 */
+    private val startTimePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = cTimeStart
+        textSize = 9.5f * density
+        textAlign = Paint.Align.CENTER
+    }
+    private val endTimePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = cTimeEnd
+        textSize = 9 * density
+        textAlign = Paint.Align.CENTER
+    }
+    private val holidayPaint = Paint().apply { color = cHolidayBg }
+    private val todayHeadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cTodayBg }
     private val dayMarkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xCCD6455F.toInt()
+        color = cHolidayMark
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
     }
 
-    private val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF7E6C86.toInt()
-        textSize = 8f * density
-        textAlign = Paint.Align.CENTER
-    }
     private val courseNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        // pastel 浅底块：用深色系统黑体（不再用手写体），窄列也认得清
-        color = 0xFF3D3340.toInt()
+        // pastel 浅底块：深色系统黑体，窄列也认得清
+        color = cName
         textSize = 10.5f * density
-        textAlign = Paint.Align.CENTER
+        textAlign = Paint.Align.LEFT
         typeface = Typeface.DEFAULT_BOLD
     }
     private val courseLocPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xB33D3340.toInt()
-        textSize = 8.5f * density
-        textAlign = Paint.Align.CENTER
+        color = cLoc
+        textSize = 9 * density
+        textAlign = Paint.Align.LEFT
     }
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     /** 活动块用虚线框，和实心的课程块区分开。 */
     private val activityStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.2f * density
+        strokeWidth = 1.5f * density
+        color = cPrimary
     }
     private val activityNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF3D3340.toInt()
+        color = cActTitle
         textSize = 9.5f * density
-        textAlign = Paint.Align.CENTER
+        textAlign = Paint.Align.LEFT
         isFakeBoldText = true
     }
     private val activityTimePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xCC3D3340.toInt()
+        color = cActTime
         textSize = 8.5f * density
         textAlign = Paint.Align.CENTER
     }
-    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0x14E8447A
-        style = Paint.Style.STROKE
-        strokeWidth = 1 * density
-    }
     private val blockRect = RectF()
+    private val barRect = RectF()
 
-    /** 「示例」角标：只有 demo 课程块右上角画一个很小的圆角标签，纯绘制，不参与点击命中。 */
     /** 课程与活动时间重叠时，活动的点击区域（画成课程块右上角的小角标）。 */
     private val badgeHits = ArrayList<Pair<RectF, Activity>>()
 
     /** 不与课程重叠的活动：仍按真实时间画虚线块，点击命中它们。 */
     private var freeActivities: List<Activity> = emptyList()
 
-    private val actBadgeBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE8447A.toInt() }
+    private val actBadgeBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cPrimary }
     private val actBadgeText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFFFFFFF.toInt()
-        textSize = 7.5f * density
+        color = Color.WHITE
+        textSize = 8.5f * density
         isFakeBoldText = true
         textAlign = Paint.Align.CENTER
     }
-    private val actHintText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFD6455F.toInt()
-        textSize = 7f * density
-        textAlign = Paint.Align.CENTER
-    }
 
-    private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFE3EE.toInt() }
+    private val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cTodayBg }
     private val badgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFA61E46.toInt()
+        color = cInk
         textSize = 7.5f * density
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
@@ -158,21 +186,40 @@ class TimetableGridView @JvmOverloads constructor(
         super.onDraw(canvas)
         canvas.drawColor(bgPaint.color)
 
-        // 表头：周一…周日
-        val days = arrayOf("一", "二", "三", "四", "五", "六", "日")
+        val gridBottom = headerH + rowH * 12
+
+        // 节假日列：整列铺一层很淡的粉，比整行高亮更安静
         for (d in 0 until 7) {
-            val cx = periodW + dayW * d + dayW / 2
             if (holidayDays.isNotEmpty() && d + 1 in holidayDays) {
-                canvas.drawRect(periodW + dayW * d, 0f, periodW + dayW * (d + 1), headerH + rowH * 12, holidayPaint)
-            }
-            canvas.drawText(days[d], cx, headerH * 0.62f, headPaint)
-            val mk = dayMarks?.getOrNull(d)
-            if (!mk.isNullOrEmpty()) {
-                dayMarkPaint.textSize = 7.5f * density
-                canvas.drawText(mk, cx, headerH - 4 * density, dayMarkPaint)
+                canvas.drawRect(periodW + dayW * d, 0f, periodW + dayW * (d + 1), gridBottom, holidayPaint)
             }
         }
-        canvas.drawLine(periodW, 0f, periodW, headerH + rowH * 12, linePaint)
+
+        // 今天所在列：只在表头画一颗浅粉胶囊，避免整列抢眼
+        if (todayWeekday in 1..7) {
+            val d = todayWeekday - 1
+            val pad = 3 * density
+            blockRect.set(
+                periodW + dayW * d + pad, 2 * density,
+                periodW + dayW * (d + 1) - pad, headerH - 2 * density
+            )
+            val r = blockRect.height() / 2f
+            canvas.drawRoundRect(blockRect, r, r, todayHeadPaint)
+        }
+
+        // 表头：周一…周日
+        val days = arrayOf("一", "二", "三", "四", "五", "六", "日")
+        headPaint.textSize = 13 * density
+        for (d in 0 until 7) {
+            val cx = periodW + dayW * d + dayW / 2
+            headPaint.color = if (todayWeekday == d + 1) cInk else cBody
+            canvas.drawText(days[d], cx, headerH * 0.64f, headPaint)
+            val mk = dayMarks?.getOrNull(d)
+            if (!mk.isNullOrEmpty()) {
+                dayMarkPaint.textSize = 12 * density
+                canvas.drawText(mk.take(2), cx, headerH - 5 * density, dayMarkPaint)
+            }
+        }
 
         // 横线 + 节次 + 节次时间
         // 时间来自知识库《作息时间与门禁》里的科文 12 节作息（全年一套）。左侧时间列按节次上下沿各写一个
@@ -185,18 +232,19 @@ class TimetableGridView @JvmOverloads constructor(
                 val range = ScheduleLogic.periodTime(p + 1, "")
                 val start = range.substringBefore('-').trim()
                 val end = range.substringAfter('-', "").trim()
-                canvas.drawText((p + 1).toString(), periodW / 2, mid + 3 * density, periodPaint)
+                canvas.drawText((p + 1).toString(), periodW / 2, mid + 4 * density, periodPaint)
                 if (start.isNotEmpty()) {
-                    canvas.drawText(start, periodW / 2, y + 10 * density, timePaint)
+                    canvas.drawText(start, periodW / 2, y + 12 * density, startTimePaint)
                 }
                 if (end.isNotEmpty()) {
-                    canvas.drawText(end, periodW / 2, y + rowH - 4 * density, timePaint)
+                    canvas.drawText(end, periodW / 2, y + rowH - 5 * density, endTimePaint)
                 }
             }
         }
+        // 竖线：只画列间淡线 + 时间列右侧一条，横线才是主结构
         for (d in 1..7) {
             val x = periodW + dayW * d
-            canvas.drawLine(x, 0f, x, headerH + rowH * 12, linePaint)
+            canvas.drawLine(x, headerH, x, gridBottom, colLinePaint)
         }
 
         // 先把课程格算出来：后面判断「哪些活动压在这门课上」要用
@@ -225,32 +273,61 @@ class TimetableGridView @JvmOverloads constructor(
         // 课程块
         for ((c, rect) in courseRects) {
             blockRect.set(rect)
-            fillPaint.color = c.color
-            canvas.drawRoundRect(blockRect, 6 * density, 6 * density, fillPaint)
-            canvas.drawRoundRect(blockRect, 6 * density, 6 * density, outlinePaint)
+            val paper = coursePastel(c.color)
+
+            // 假阴影：右下角偏移 1dp 的深一档色块（Canvas 画不了 elevation，这样有一点浮起感）
+            fillPaint.color = darkerColor(paper, 0.92f)
+            canvas.drawRoundRect(
+                blockRect.left + density, blockRect.top + density,
+                blockRect.right + density, blockRect.bottom + density,
+                10 * density, 10 * density, fillPaint
+            )
+
+            fillPaint.color = paper
+            canvas.drawRoundRect(blockRect, 10 * density, 10 * density, fillPaint)
+
+            // 左侧 3dp 竖条：用课程色加深 20%，一眼分得清是「哪一类」课
+            barRect.set(
+                blockRect.left + 3 * density, blockRect.top + 5 * density,
+                blockRect.left + 6 * density, blockRect.bottom - 5 * density
+            )
+            barPaint.color = darkerColor(paper, 0.80f)
+            canvas.drawRoundRect(barRect, 1.5f * density, 1.5f * density, barPaint)
 
             val acts = overlapped[c]
             val hasAct = !acts.isNullOrEmpty()
             val hasDemo = c.source == "demo"
             // 顶部角标条带：有「示例」/「＋N」角标时课名整体下移，任何块宽都不压字
-            val badgeBand = if (hasAct || hasDemo) 13 * density else 0f
-            val narrow = rect.width() < 58 * density
-            val nameSize = (if (narrow) 9.5f else 10.5f) * density
+            val badgeBand = when {
+                hasAct -> 16 * density
+                hasDemo -> 13 * density
+                else -> 0f
+            }
+            val narrow = rect.width() < 62 * density
+            val nameSize = (if (narrow) 8.5f else 9.5f) * density
             courseNamePaint.textSize = nameSize
-            val lineH = nameSize * 1.14f
-            val bodyH = (rect.height() - badgeBand - 3 * density).coerceAtLeast(lineH)
-            val maxLines = (bodyH / lineH).toInt().coerceIn(1, 3)
-            val lines = wrap(c.name, rect.width() - 8 * density, courseNamePaint)
-            var ty = rect.top + badgeBand + 2 * density + nameSize
-            for (line in lines.take(maxLines)) {
-                canvas.drawText(line, rect.centerX(), ty, courseNamePaint)
+            val lineH = nameSize * 1.1f
+            val textLeft = blockRect.left + 6 * density
+            val avail = (blockRect.right - 2 * density - textLeft).coerceAtLeast(8 * density)
+            val bodyH = (blockRect.height() - badgeBand - 2 * density).coerceAtLeast(lineH)
+            val maxLines = (bodyH / lineH).toInt().coerceIn(1, 4)
+            val lines = wrap(c.name, avail, courseNamePaint)
+            val shown = lines.take(maxLines).toMutableList()
+            if (lines.size > maxLines && shown.isNotEmpty()) {
+                shown[shown.size - 1] = ellipsize(shown[shown.size - 1], avail, courseNamePaint)
+            }
+            var ty = blockRect.top + badgeBand + 2 * density + nameSize
+            for (line in shown) {
+                canvas.drawText(line, textLeft, ty, courseNamePaint)
                 ty += lineH
             }
-            if (c.location.isNotBlank() && rect.height() > 46 * density) {
+            if (c.location.isNotBlank() && blockRect.height() > 50 * density &&
+                ty + 2 * density <= blockRect.bottom - 10 * density) {
+                courseLocPaint.textSize = (if (narrow) 8f else 8.5f) * density
                 canvas.drawText(
-                    c.location.take(8),
-                    rect.centerX(),
-                    rect.bottom - 7 * density,
+                    c.location.take(if (narrow) 5 else 7),
+                    textLeft,
+                    blockRect.bottom - 5 * density,
                     courseLocPaint
                 )
             }
@@ -288,19 +365,21 @@ class TimetableGridView @JvmOverloads constructor(
             val w = dayW - 4 * density
             val h = rowH * (ep - sp + 1) - 4 * density
             blockRect.set(x, y, x + w, y + h)
-            fillPaint.color = if (a.conflict) 0x66FFC2C8.toInt() else 0x66FFD9E6
-            canvas.drawRoundRect(blockRect, 6 * density, 6 * density, fillPaint)
+            fillPaint.color = if (a.conflict) 0xFFFFE7EE.toInt() else cHolidayBg
+            canvas.drawRoundRect(blockRect, 10 * density, 10 * density, fillPaint)
             activityStroke.pathEffect = DashPathEffect(floatArrayOf(3 * density, 2 * density), 0f)
-            activityStroke.color = if (a.conflict) 0xCCD6455F.toInt() else 0xCCE8447A.toInt()
-            canvas.drawRoundRect(blockRect, 6 * density, 6 * density, activityStroke)
+            activityStroke.color = if (a.conflict) 0xFFD6455F.toInt() else cPrimary
+            canvas.drawRoundRect(blockRect, 10 * density, 10 * density, activityStroke)
             activityStroke.pathEffect = null
 
-            val lines = wrap(a.title, blockRect.width() - 8 * density, activityNamePaint)
+            val textLeft = blockRect.left + 7 * density
+            val avail = (blockRect.width() - 12 * density).coerceAtLeast(10 * density)
+            val lines = wrap(a.title, avail, activityNamePaint)
             val hasDemo = a.source == "demo"
             val badgeBand = if (hasDemo) 13 * density else 0f
             var ty = y + badgeBand + 3 * density + 9.5f * density
             for (line in lines.take(2)) {
-                canvas.drawText(line, x + w / 2, ty, activityNamePaint)
+                canvas.drawText(line, textLeft, ty, activityNamePaint)
                 ty += 11 * density
             }
 
@@ -331,7 +410,6 @@ class TimetableGridView @JvmOverloads constructor(
         return RectF(x, y, x + w, y + h)
     }
 
-    /** 活动在周视图里的矩形；日期非法返回 null。 */
     /** "HH:mm" → 当天分钟数；解析不出来返回 -1。 */
     private fun minutesOf(hhmm: String): Int {
         val t = hhmm.trim()
@@ -381,24 +459,24 @@ class TimetableGridView @JvmOverloads constructor(
         val n = list.size
         val avail = (block.width() - 4 * density).coerceAtLeast(8 * density)
         var label = if (block.width() < 70 * density) "＋$n" else "＋$n 活动"
-        // 先按块宽挑字号（7.5sp 起，最小 6.5sp），保证文字不越界
-        var sizeSp = 7.5f
+        // 先按块宽挑字号（8.5sp 起，最小 7sp），保证文字不越界
+        var sizeSp = 8.5f
         actBadgeText.textSize = sizeSp * density
-        while (sizeSp > 6.5f && actBadgeText.measureText(label) > avail - 4 * density) {
+        while (sizeSp > 7f && actBadgeText.measureText(label) > avail - 4 * density) {
             sizeSp -= 0.5f
             actBadgeText.textSize = sizeSp * density
         }
         if (actBadgeText.measureText(label) > avail - 2 * density) {
             label = "＋$n"
-            actBadgeText.textSize = 7.5f * density
+            actBadgeText.textSize = 8.5f * density
         }
-        val bh = 11 * density
-        val bw = (actBadgeText.measureText(label) + 8 * density).coerceAtMost(avail)
+        val bh = 14 * density
+        val bw = (actBadgeText.measureText(label) + 10 * density).coerceAtMost(avail)
         val right = block.right - 2 * density
         val top = block.top + 2 * density
         val rect = RectF(right - bw, top, right, top + bh)
-        canvas.drawRoundRect(rect, bh / 2, bh / 2, actBadgeBg)
-        canvas.drawText(label, rect.centerX(), top + bh * 0.74f, actBadgeText)
+        canvas.drawRoundRect(rect, 6 * density, 6 * density, actBadgeBg)
+        canvas.drawText(label, rect.centerX(), top + bh * 0.72f, actBadgeText)
         badgeHits.add(rect to list.first())
     }
 
@@ -421,8 +499,7 @@ class TimetableGridView @JvmOverloads constructor(
             return
         }
         // 两行兜底：块高足够才画（≥48dp），否则只显示起始时间，绝不画半截
-        val twoLineH = 24 * density
-        if (block.height() >= twoLineH + 18 * density) {
+        if (block.height() >= 42 * density) {
             canvas.drawText(s, cx, block.bottom - 17 * density, activityTimePaint)
             canvas.drawText(e, cx, block.bottom - 6 * density, activityTimePaint)
         } else if (activityTimePaint.measureText(s) <= avail) {
@@ -444,6 +521,15 @@ class TimetableGridView @JvmOverloads constructor(
         }
         if (cur.isNotEmpty()) out.add(cur.toString())
         return out
+    }
+
+    /** 行尾省略号：只影响最后一行的显示，不改课程名本身。 */
+    private fun ellipsize(text: String, maxWidth: Float, paint: Paint): String {
+        var s = text
+        while (s.isNotEmpty() && paint.measureText("$s…") > maxWidth) {
+            s = s.dropLast(1)
+        }
+        return s + "…"
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {

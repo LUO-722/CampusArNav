@@ -2,14 +2,17 @@ package com.campus.arnav
 
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.PorterDuff
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import com.campus.arnav.core.Reminder
 import android.util.Log
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -39,7 +42,16 @@ class MainShellActivity : AppCompatActivity() {
 
     private lateinit var content: FrameLayout
     private lateinit var navBar: LinearLayout
-    private val navButtons = ArrayList<TextView>()
+    private val navItems = ArrayList<NavItem>()
+
+    /** 底栏一项：浅粉胶囊底 + 22dp 矢量图标 + 10.5sp 小字；选中态只换颜色与底色，不重建视图。 */
+    private class NavItem(val pill: View, val icon: ImageView, val label: TextView)
+
+    /** 底栏配色：选中 accent #E8447A，未选中 #A99CB0，选中胶囊底 #FFEAF2，顶边描边 #F2E4EC。 */
+    private val navAccent = Color.parseColor("#E8447A")
+    private val navIdle = Color.parseColor("#A99CB0")
+    private val navPill = Color.parseColor("#FFEAF2")
+    private val navStroke = Color.parseColor("#F2E4EC")
 
     private lateinit var timetable: TimetableTab
     private lateinit var zhijia: ZhijiaTab
@@ -96,16 +108,16 @@ class MainShellActivity : AppCompatActivity() {
 
         navBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            // Ins 风：白色胶囊式底栏，上沿圆角 + 一条淡粉描边
+            // Ins 风底栏：白底、上沿 20dp 圆角、1dp 淡粉描边、轻投影；高度 62dp（底部导航栏 inset 由外层 root padding 承担）
             val r = dp(20).toFloat()
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
                 setColor(color(R.color.bg_card))
-                setStroke(dp(1), color(R.color.border))
+                setStroke(dp(1), navStroke)
             }
-            elevation = dp(6).toFloat()
-            setPadding(dp(4), dp(4), dp(4), dp(4))
+            elevation = dp(8).toFloat()
+            setPadding(dp(4), dp(4), dp(4), dp(2))
         }
         root.addView(navBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(62)))
 
@@ -135,25 +147,46 @@ class MainShellActivity : AppCompatActivity() {
         }.onFailure { buildError = it; Log.e("MainShell", "buildTabs failed", it) }
         tabBuildError = buildError
 
-        val labels = listOf(
-            "课程表" to "▦",
-            "智嘉" to "✦",
-            "导航" to "➤",
-            "对话" to "✉",
-            "我的" to "☺"
+        // 五个 tab：22dp 矢量图标 + 10.5sp 文字竖排；选中时图标/文字都用 accent，并在图标后面垫浅粉胶囊。
+        val tabs = listOf(
+            "课程表" to R.drawable.ic_tab_timetable,
+            "智嘉" to R.drawable.ic_tab_zhijia,
+            "导航" to R.drawable.ic_tab_nav,
+            "对话" to R.drawable.ic_tab_chat,
+            "我的" to R.drawable.ic_tab_profile
         )
-        labels.forEachIndexed { i, (label, icon) ->
-            val tv = TextView(this).apply {
-                text = "$icon\n$label"
+        tabs.forEachIndexed { i, (label, iconRes) ->
+            val pill = FrameLayout(this).apply {
+                // 胶囊：高 26dp、内容左右各 10dp，圆角由 switchTab 里 rounded(..., 999) 给
+                setPadding(dp(10), 0, dp(10), 0)
+            }
+            val icon = ImageView(this).apply {
+                setImageResource(iconRes)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                // 图标 XML 用 #000000 绘制，这里用 ColorFilter 上色（app:tint 在纯 ImageView 上不生效）
+                setColorFilter(navIdle, PorterDuff.Mode.SRC_IN)
+            }
+            pill.addView(icon, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+            val labelView = TextView(this).apply {
+                text = label
                 contentDescription = label
                 gravity = Gravity.CENTER
-                textSize = 12f
-                setTextColor(color(R.color.text_secondary))
-                setPadding(0, dp(4), 0, dp(4))
-                setOnClickListener { switchTab(i) }
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
+                setTextColor(navIdle)
+                includeFontPadding = false
             }
-            navButtons.add(tv)
-            navBar.addView(tv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setOnClickListener { switchTab(i) }
+                addView(pill, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(26)))
+                addView(labelView, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(3) })
+            }
+            navItems.add(NavItem(pill, icon, labelView))
+            navBar.addView(item, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
 
         switchTab(savedInstanceState?.getInt("tab", 0)?.coerceIn(0, 4) ?: 0)
@@ -248,11 +281,13 @@ class MainShellActivity : AppCompatActivity() {
             }
         } else view
         content.addView(shown, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        for ((idx, tv) in navButtons.withIndex()) {
+        for ((idx, item) in navItems.withIndex()) {
             val on = idx == i
-            // 选中项字色用 accent_ink（#A61E46）：accent #E8447A 在 #FFE3EE 选中底上只有 3.15:1
-            tv.setTextColor(if (on) color(R.color.accent_ink) else color(R.color.text_secondary))
-            tv.background = if (on) rounded(this, Color.parseColor("#FFE3EE"), 12) else null
+            val tint = if (on) navAccent else navIdle
+            item.icon.setColorFilter(tint, PorterDuff.Mode.SRC_IN)
+            item.label.setTextColor(tint)
+            // 选中：图标后面垫浅粉胶囊（高 26dp、圆角 999）；未选中：去掉底色
+            item.pill.background = if (on) rounded(this, navPill, 999) else null
         }
     }
 

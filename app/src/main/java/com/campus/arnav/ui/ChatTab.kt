@@ -5,9 +5,14 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.SystemClock
 import android.net.Uri
+import android.text.SpannableString
+import android.text.Spanned
 import android.text.TextUtils
+import android.text.style.ForegroundColorSpan
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -19,6 +24,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.content.res.ResourcesCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.campus.arnav.R
@@ -51,13 +57,25 @@ class ChatTab(
 
     private val scroll = ScrollView(ctx)
     private val msgBox = LinearLayout(ctx)
-    private val input = editText(ctx, "问校园的事，或说“下周三下午3点有个讲座帮我录入”…", android.text.InputType.TYPE_CLASS_TEXT)
-    private val modelLabel = textView(ctx, "", 11f, ctx.color(R.color.text_secondary))
+    private val input = editText(ctx, "问校园制度、办事、课程…", android.text.InputType.TYPE_CLASS_TEXT)
+    private val modelLabel = textView(ctx, "", 11.5f, ctx.color(R.color.text_hint))
     private val history = ArrayList<ChatMsg>()
-    private val padBottom = ctx.dp(8)
     private var imeExtra = 0
     private var sending = false
     private var streamBubble: TextView? = null
+
+    /** 上一条消息是谁发的：用来决定气泡间距（同侧 4dp、换边 10dp）。 */
+    private var lastAssistant: Boolean? = null
+
+    // Ins 浅色色板（全部取自 colors.xml，避免散落硬编码）
+    private val cBorder = ctx.color(R.color.border)
+    private val cCard = ctx.color(R.color.bg_card)
+    private val cAccent = ctx.color(R.color.accent)
+    private val cAccentInk = ctx.color(R.color.accent_ink)
+    private val cAccentSoft = ctx.color(R.color.accent_soft)
+    private val cTextPrimary = ctx.color(R.color.text_primary)
+    private val cTextSecondary = ctx.color(R.color.text_secondary)
+    private val cTextHint = ctx.color(R.color.text_hint)
 
     @Volatile
     private var cancelFlag = false
@@ -66,8 +84,9 @@ class ChatTab(
 
     /** 当前会话 sid（构造时新开）。 */
     private lateinit var sessionId: String
-    private lateinit var recordBtn: Button
-    private lateinit var clearBtn: Button
+    private lateinit var recordBtn: TextView
+    private lateinit var clearBtn: TextView
+    private lateinit var sendBtn: TextView
     private lateinit var inputRow: LinearLayout
 
     /** true = 正在看历史会话（只读），底部输入行隐藏。 */
@@ -83,7 +102,8 @@ class ChatTab(
         orientation = VERTICAL
         // 不铺纯色底，让 MainShell 的 #FFF1F7→#EDF7FF 渐变透出来
         setBackgroundColor(Color.TRANSPARENT)
-        setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), padBottom)
+        // 横向不留白：底部输入条要能铺满整宽；左右留白交给标题行/消息区自己加
+        setPadding(0, ctx.dp(10), 0, 0)
 
         // 每次进入新开一个会话；旧会话留在「记录」里
         sessionId = ChatStore.newSession(ctx)
@@ -91,45 +111,40 @@ class ChatTab(
         val head = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(ctx.dp(12), 0, ctx.dp(12), 0)
         }
-        head.addView(button(ctx, "☰", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
-            setOnClickListener { onOpenSettings() }
-        }, LinearLayout.LayoutParams(ctx.dp(42), ctx.dp(38)))
-        val titleBox = LinearLayout(ctx).apply { orientation = VERTICAL }
-        titleBox.addView(textView(ctx, "智嘉 · 对话", 18f, ctx.color(R.color.text_primary), bold = true))
-        titleBox.addView(modelLabel)
+        head.addView(circleBtn("☰", 34) { onOpenSettings() }, LinearLayout.LayoutParams(ctx.dp(34), ctx.dp(34)))
+        head.addView(decoTitle("智嘉 · 对话"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = ctx.dp(10) })
+
+        // 「记录 / 返回」：34dp 白底圆形按钮，1dp 描边，和旁边「清」同一规格
+        recordBtn = circleBtn("记录", 34) {
+            if (viewingHistory) backToCurrent() else openHistory()
+        }
+        head.addView(recordBtn, LinearLayout.LayoutParams(ctx.dp(34), ctx.dp(34)).apply { leftMargin = ctx.dp(8) })
+
+        clearBtn = circleBtn("清", 34) {
+            confirm(ctx, "清空对话记录？", "只清空当前这段对话，其它历史记录和课表、知识库都不受影响。") {
+                ChatStore.delete(ctx, sessionId)
+                sessionId = ChatStore.newSession(ctx)
+                history.clear()
+                msgBox.removeAllViews()
+                lastAssistant = null
+                addBubble(greeting, true, welcome = true)
+            }
+        }
+        head.addView(clearBtn, LinearLayout.LayoutParams(ctx.dp(34), ctx.dp(34)).apply { leftMargin = ctx.dp(8) })
+        addView(head)
+
+        // 通道状态单独一行小字（11.5sp / #A99CB0），文案仍由 refreshProvider() 填
+        modelLabel.setPadding(ctx.dp(14), ctx.dp(6), ctx.dp(14), ctx.dp(2))
         // 模型通道是构建期内置的，没有可选项：点一下只解释「无需配置」，不再弹配置菜单
         modelLabel.setOnClickListener {
             ctx.toast("云端模型随网络自动切换，无需配置；断网时自动用离线知识库。")
         }
-        head.addView(titleBox, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = ctx.dp(10) })
-
-        // 「记录 / 返回」：白底圆角小按钮，和旁边「清」同色系
-        recordBtn = button(ctx, "记录", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
-            textSize = 11f
-            minHeight = ctx.dp(38)
-            minimumHeight = ctx.dp(38)
-            setPadding(ctx.dp(4), 0, ctx.dp(4), 0)
-            setOnClickListener { if (viewingHistory) backToCurrent() else openHistory() }
-        }
-        head.addView(recordBtn, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(38)).apply { leftMargin = ctx.dp(6) })
-
-        clearBtn = button(ctx, "清", ctx.color(R.color.bg_card), ctx.color(R.color.text_secondary)).apply {
-            setOnClickListener {
-                confirm(ctx, "清空对话记录？", "只清空当前这段对话，其它历史记录和课表、知识库都不受影响。") {
-                    ChatStore.delete(ctx, sessionId)
-                    sessionId = ChatStore.newSession(ctx)
-                    history.clear()
-                    msgBox.removeAllViews()
-                    addBubble(greeting, true)
-                }
-            }
-        }
-        head.addView(clearBtn, LinearLayout.LayoutParams(ctx.dp(42), ctx.dp(38)).apply { leftMargin = ctx.dp(6) })
-        addView(head)
+        addView(modelLabel)
 
         msgBox.orientation = VERTICAL
-        msgBox.setPadding(0, ctx.dp(8), 0, ctx.dp(8))
+        msgBox.setPadding(ctx.dp(12), ctx.dp(8), ctx.dp(12), ctx.dp(8))
         scroll.addView(msgBox)
         scroll.isFillViewport = true
         addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -137,9 +152,21 @@ class ChatTab(
         val row = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(ctx.dp(10), ctx.dp(10), ctx.dp(10), ctx.dp(10))
         }
         inputRow = row
+        // 输入框：白底、22dp 圆角、1dp 描边、最小高 44dp、内边距 14dp
         input.maxLines = 4
+        input.textSize = 15f
+        input.setTextColor(cTextPrimary)
+        input.setHintTextColor(cTextHint)
+        input.setPadding(ctx.dp(14), ctx.dp(12), ctx.dp(14), ctx.dp(12))
+        input.minHeight = ctx.dp(44)
+        input.background = GradientDrawable().apply {
+            cornerRadius = ctx.dp(22).toFloat()
+            setColor(cCard)
+            setStroke(ctx.dp(1), cBorder)
+        }
         input.isFocusableInTouchMode = true
         input.isCursorVisible = true
         input.imeOptions = EditorInfo.IME_ACTION_SEND
@@ -159,13 +186,15 @@ class ChatTab(
         input.setOnFocusChangeListener { v, hasFocus ->
             if (hasFocus) v.post { showIme(v) }
         }
-        row.addView(button(ctx, "图", ctx.color(R.color.bg_card), ctx.color(R.color.text_primary)).apply {
-            setOnClickListener { pickImage() }
-        }, LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(42)).apply { rightMargin = ctx.dp(6) })
+        row.addView(circleBtn("图", 34) { pickImage() }, LinearLayout.LayoutParams(ctx.dp(34), ctx.dp(34)).apply { rightMargin = ctx.dp(8) })
         row.addView(input, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        row.addView(button(ctx, "发送", ctx.color(R.color.accent), Color.parseColor("#FFFFFF")).apply {
-            setOnClickListener { send() }
-        }, LinearLayout.LayoutParams(ctx.dp(64), ctx.dp(42)).apply { leftMargin = ctx.dp(6) })
+        // 发送：40dp 圆形玫粉按钮 + 白色上箭头；发送中变浅粉底深字（仍可点 = 取消）
+        sendBtn = circleBtn("↑", 40, filled = true) { send() }.apply {
+            textSize = 20f
+            setTypeface(typeface, Typeface.BOLD)
+        }
+        row.addView(sendBtn, LinearLayout.LayoutParams(ctx.dp(40), ctx.dp(40)).apply { leftMargin = ctx.dp(8) })
+        updateSendState()
         // 整条输入行都可点：点空白处也直接进输入态，不用精确点到输入框内部。
         // 注意 clickable 的 ViewGroup 默认也是 focusable 的，这里显式关掉，
         // 否则它会在键盘重排时跟输入框抢焦点。
@@ -173,12 +202,22 @@ class ChatTab(
         row.isFocusable = false
         row.isFocusableInTouchMode = false
         row.setOnClickListener { grabInputFocus(openIme = true) }
-        addView(row)
+
+        // 底部输入条：白底铺满整宽，顶部 1dp 分隔线，内部 10dp 内边距
+        val inputBar = LinearLayout(ctx).apply {
+            orientation = VERTICAL
+            setBackgroundColor(cCard)
+        }
+        inputBar.addView(View(ctx).apply { setBackgroundColor(cBorder) },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(1)))
+        inputBar.addView(row, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        addView(inputBar)
 
         val saved = ChatStore.messages(ctx, sessionId).takeLast(30)
         history.addAll(saved)
         if (saved.isEmpty()) {
-            addBubble(greeting, true)
+            addBubble(greeting, true, welcome = true)
         } else {
             saved.forEach { addBubble(it.content, it.role != "user") }
         }
@@ -205,7 +244,8 @@ class ChatTab(
             isFillViewport = false
             addView(box)
         }
-        val listH = (sessions.size.coerceAtMost(6) * 62 + 8)
+        // 每行固定 56dp + 1dp 分隔线
+        val listH = (sessions.size.coerceAtMost(6) * 57 + 8)
         val container = LinearLayout(ctx).apply {
             orientation = VERTICAL
             setPadding(ctx.dp(14), ctx.dp(2), ctx.dp(14), 0)
@@ -225,11 +265,17 @@ class ChatTab(
                 showHistorySession(s)
             }, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                ctx.dp(56)
             ))
-            if (index != sessions.lastIndex) box.addView(divider(ctx))
+            if (index != sessions.lastIndex) box.addView(rowDivider())
         }
         dialog.show()
+    }
+
+    /** 列表行分隔线：1dp、#F2E4EC、铺满行宽（比通用 divider 少了左右 4dp 缩进）。 */
+    private fun rowDivider(): View = View(ctx).apply {
+        setBackgroundColor(cBorder)
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(1))
     }
 
     private fun historyRow(s: ChatSession, onOpen: () -> Unit): View {
@@ -241,31 +287,40 @@ class ChatTab(
         val row = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, ctx.dp(10), 0, ctx.dp(10))
+            setPadding(0, ctx.dp(8), 0, ctx.dp(8))
             isClickable = true
             setOnClickListener { onOpen() }
         }
+        // 当前会话：行首 3dp 玫粉竖条；其它行留同等缩进，保证文字左对齐
+        if (s.id == sessionId) {
+            row.addView(View(ctx).apply { setBackgroundColor(cAccent) },
+                LinearLayout.LayoutParams(ctx.dp(3), ctx.dp(24)).apply { rightMargin = ctx.dp(9) })
+        } else {
+            row.addView(View(ctx), LinearLayout.LayoutParams(ctx.dp(12), 1))
+        }
         val col = LinearLayout(ctx).apply { orientation = VERTICAL }
-        col.addView(textView(ctx, if (s.title.isBlank()) "新对话" else s.title, 14f, ctx.color(R.color.text_primary), bold = true).apply {
+        col.addView(textView(ctx, if (s.title.isBlank()) "新对话" else s.title, 15f, cTextPrimary).apply {
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
         })
-        col.addView(textView(ctx, "${fmt(s.updatedAt)} · ${count} 条", 11f, ctx.color(R.color.text_secondary)))
+        col.addView(textView(ctx, "${fmt(s.updatedAt)} · ${count} 条", 12f, cTextSecondary).apply {
+            setPadding(0, ctx.dp(2), 0, 0)
+        })
         row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
         if (s.id == sessionId) {
-            row.addView(textView(ctx, "当前", 10f, ctx.color(R.color.accent_ink)).apply {
-                background = rounded(ctx, ctx.color(R.color.accent_soft), 8)
+            row.addView(textView(ctx, "当前", 10f, cAccentInk).apply {
+                background = rounded(ctx, cAccentSoft, 8)
                 setPadding(ctx.dp(6), ctx.dp(2), ctx.dp(6), ctx.dp(2))
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 leftMargin = ctx.dp(6)
             })
         }
-        val del = textView(ctx, "删除", 11f, ctx.color(R.color.accent), bold = true).apply {
+        val del = textView(ctx, "删除", 11f, cAccent, bold = true).apply {
             setPadding(ctx.dp(6), ctx.dp(4), 0, ctx.dp(4))
             if (s.id == sessionId) {
                 // 当前会话不可删：置灰且不响应
-                setTextColor(ctx.color(R.color.text_secondary))
+                setTextColor(cTextSecondary)
                 alpha = 0.45f
             } else {
                 setOnClickListener {
@@ -310,6 +365,7 @@ class ChatTab(
         } catch (e: Exception) {
             emptyList()
         }
+        lastAssistant = null
         if (msgs.isEmpty()) {
             addBubble("（这条记录里没有消息）", true)
         } else {
@@ -326,8 +382,9 @@ class ChatTab(
         clearBtn.visibility = View.VISIBLE
         inputRow.visibility = View.VISIBLE
         msgBox.removeAllViews()
+        lastAssistant = null
         if (history.isEmpty()) {
-            addBubble(greeting, true)
+            addBubble(greeting, true, welcome = true)
         } else {
             history.forEach { addBubble(it.content, it.role != "user") }
         }
@@ -396,7 +453,7 @@ class ChatTab(
                     v.post { v.requestApplyInsets() }
                 } else if (imeExtra != 0) {
                     imeExtra = 0
-                    v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, padBottom)
+                    v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, 0)
                 }
                 return@setOnApplyWindowInsetsListener insets
             }
@@ -412,7 +469,7 @@ class ChatTab(
                 val hadFocus = input.hasFocus()
                 val caret = if (hadFocus) input.selectionStart.coerceAtLeast(0) else -1
                 val apply = Runnable {
-                    v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, padBottom + imeExtra)
+                    v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, imeExtra)
                     // 关键顺序：先让 padding 落地（这一帧的布局会被改），再在下一帧把焦点抢回来。
                     // 重排期间系统可能已经把焦点交给了别的可聚焦视图（气泡），
                     // 那样键盘虽然弹出来，字符却进不了输入框；这里必须最后一步再补焦点 + 补键盘。
@@ -492,7 +549,7 @@ class ChatTab(
         if (sending) {
             // 「卡住」时给一条活路：再点一次发送 = 取消这次回复，输入框里的字保留
             cancelFlag = true
-            sending = false
+            setSending(false)
             val b = streamBubble
             if (b != null && b.text.isNullOrBlank()) b.text = "（已取消）"
             streamBubble = null
@@ -507,7 +564,7 @@ class ChatTab(
         history.add(ChatMsg("user", text))
         ChatStore.add(ctx, sessionId, ChatMsg("user", text))
         if (first) ChatStore.setTitle(ctx, sessionId, text)
-        sending = true
+        setSending(true)
         cancelFlag = false
         val context = ctx
         streamBubble = addBubble("…", true)
@@ -516,7 +573,7 @@ class ChatTab(
         postDelayed({
             if (sending) {
                 cancelFlag = true
-                sending = false
+                setSending(false)
                 ctx.toast("这次回复超时了，可以再点一次「发送」重试")
             }
         }, 100_000L)
@@ -574,7 +631,7 @@ class ChatTab(
         history.add(ChatMsg("assistant", reply))
         ChatStore.add(ctx, sessionId, ChatMsg("assistant", reply))
         while (history.size > 30) history.removeAt(0)
-        sending = false
+        setSending(false)
     }
 
     private fun complete(r: AgentEngine.Result) {
@@ -588,7 +645,7 @@ class ChatTab(
         history.add(ChatMsg("assistant", r.reply))
         ChatStore.add(ctx, sessionId, ChatMsg("assistant", r.reply))
         while (history.size > 30) history.removeAt(0)
-        sending = false
+        setSending(false)
         if (r.pending.isEmpty()) return
         // 写操作（加课/录活动/闹钟/删除）先让用户确认，未确认不落库
         val lines = r.pending.joinToString("\n") { "· " + AgentEngine.describe(it) }
@@ -619,7 +676,7 @@ class ChatTab(
 
     private fun fail(message: String) {
         addBubble(message, true)
-        sending = false
+        setSending(false)
     }
 
     /** 模型回复常带 Markdown 记号，TextView 不渲染，这里转成干净文本。 */
@@ -632,14 +689,25 @@ class ChatTab(
         return t
     }
 
-    private fun addBubble(text: String, assistant: Boolean): TextView {
+    private fun addBubble(text: String, assistant: Boolean, welcome: Boolean = false): TextView {
         val bubble = TextView(ctx).apply {
             this.text = if (assistant) plain(text) else text
-            textSize = 14f
-            maxWidth = resources.displayMetrics.widthPixels - ctx.dp(64)
-            setTextColor(if (assistant) ctx.color(R.color.text_primary) else Color.parseColor("#FFFFFF"))
-            setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), ctx.dp(10))
-            background = rounded(ctx, if (assistant) ctx.color(R.color.bg_card) else ctx.color(R.color.accent), 14)
+            textSize = 15f
+            typeface = Typeface.DEFAULT
+            setLineSpacing(0f, 1.4f)
+            includeFontPadding = false
+            maxWidth = resources.displayMetrics.widthPixels - ctx.dp(if (welcome) 116 else 64)
+            setTextColor(if (assistant) cTextPrimary else Color.WHITE)
+            setPadding(ctx.dp(14), ctx.dp(14), ctx.dp(14), ctx.dp(14))
+            background = if (welcome) {
+                // 欢迎语：浅粉卡片，无描边
+                GradientDrawable().apply {
+                    cornerRadius = ctx.dp(18).toFloat()
+                    setColor(Color.parseColor("#FFF3F8"))
+                }
+            } else {
+                bubbleBg(assistant)
+            }
             // 复制改成「长按」：setTextIsSelectable(true) 会把气泡变成 focusableInTouchMode 的 TextView，
             // 键盘弹起重排时焦点被它抢走，第一次点输入框就打不了字。这里绝不让气泡可聚焦。
             setOnLongClickListener {
@@ -653,22 +721,129 @@ class ChatTab(
         val wrap = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             gravity = if (assistant) Gravity.START else Gravity.END
-            setPadding(0, ctx.dp(3), 0, ctx.dp(3))
+            // 气泡间距：换边 10dp，同侧连续 4dp
+            val gap = when (lastAssistant) {
+                null -> ctx.dp(2)
+                assistant -> ctx.dp(4)
+                else -> ctx.dp(10)
+            }
+            setPadding(0, gap, 0, 0)
+        }
+        if (welcome) {
+            wrap.addView(avatarView(), LinearLayout.LayoutParams(ctx.dp(44), ctx.dp(44)).apply {
+                rightMargin = ctx.dp(8)
+            })
         }
         wrap.addView(bubble, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ))
         msgBox.addView(wrap)
+        lastAssistant = assistant
         scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
         return bubble
     }
 
-    /** 流式过程中刷新「还没写完」的气泡。 */
+    /** 助手气泡：白底 + 1dp 描边 + 左下角 6dp；用户气泡：玫粉实底 + 右下角 6dp。 */
+    private fun bubbleBg(assistant: Boolean): GradientDrawable {
+        val big = ctx.dp(18).toFloat()
+        val small = ctx.dp(6).toFloat()
+        return GradientDrawable().apply {
+            cornerRadii = if (assistant) {
+                // 顺序：左上、右上、右下、左下（每角两个值）
+                floatArrayOf(big, big, big, big, big, big, small, small)
+            } else {
+                floatArrayOf(big, big, big, big, small, small, big, big)
+            }
+            setColor(if (assistant) cCard else cAccent)
+            if (assistant) setStroke(ctx.dp(1), cBorder)
+        }
+    }
+
+    /** 34dp / 40dp 圆形按钮：白底描边（ghost）或玫粉实底白字（filled）。 */
+    private fun circleBtn(
+        text: String,
+        sizeDp: Int,
+        filled: Boolean = false,
+        onClick: () -> Unit
+    ): TextView = TextView(ctx).apply {
+        this.text = text
+        textSize = if (sizeDp >= 40) 20f else 12f
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        maxLines = 1
+        setTextColor(if (filled) Color.WHITE else cTextPrimary)
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (filled) cAccent else cCard)
+            if (!filled) setStroke(ctx.dp(1), cBorder)
+        }
+        setPadding(0, 0, 0, 0)
+        isClickable = true
+        isFocusable = false
+        setOnClickListener { onClick() }
+    }
+
+    /** 发送按钮状态：发送中浅粉底 + 深粉箭头（仍可点，用来取消）。 */
+    private fun updateSendState() {
+        if (!::sendBtn.isInitialized) return
+        sendBtn.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (sending) cAccentSoft else cAccent)
+        }
+        sendBtn.setTextColor(if (sending) cAccentInk else Color.WHITE)
+        sendBtn.text = if (sending) "×" else "↑"
+        sendBtn.contentDescription = if (sending) "取消这次回复" else "发送"
+    }
+
+    private fun setSending(v: Boolean) {
+        sending = v
+        updateSendState()
+    }
+
+    /** 欢迎语左侧的头像占位：淡粉圆底 + ✦。 */
+    private fun avatarView(): TextView = TextView(ctx).apply {
+        text = "✦"
+        textSize = 16f
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        setTextColor(cAccentInk)
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(cAccentSoft)
+        }
+    }
+
+    /** 页面大标题：20sp 装饰字体；字体加载失败退回系统粗体。正文一律系统字体。 */
+    private fun decoTitle(text: String): TextView {
+        val deco: Typeface? = try {
+            ResourcesCompat.getFont(ctx, R.font.long_cang)
+        } catch (t: Throwable) {
+            null
+        }
+        return TextView(ctx).apply {
+            this.text = text
+            textSize = 20f
+            setTextColor(cTextPrimary)
+            typeface = deco ?: Typeface.DEFAULT_BOLD
+            includeFontPadding = false
+            maxLines = 1
+        }
+    }
+
+    /** 流式过程中刷新「还没写完」的气泡：文字末尾跟一条玫粉竖条光标（不用三点动画）。 */
     private fun showStreaming(visible: String) {
         val b = streamBubble ?: return
         if (b.parent == null) return
-        b.text = if (visible.isBlank()) "…" else plain(visible)
+        val body = if (visible.isBlank()) "…" else plain(visible)
+        // 光标用「▍」字符 + 主色，比画 View 简单，而且会随文字自动换行
+        val sp = SpannableString(body + "▍")
+        sp.setSpan(
+            ForegroundColorSpan(cAccent),
+            body.length, body.length + 1,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        b.text = sp
         scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
     }
 

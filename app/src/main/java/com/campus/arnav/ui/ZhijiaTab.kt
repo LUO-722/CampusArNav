@@ -2,15 +2,20 @@ package com.campus.arnav.ui
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Outline
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.text.Editable
+import android.text.InputType
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.widget.CheckBox
 import android.widget.LinearLayout
-import android.widget.ScrollView
-import androidx.appcompat.app.AlertDialog
+import android.widget.TextView
 import com.campus.arnav.R
 import com.campus.arnav.agent.NoticeExtractor
 import com.campus.arnav.agent.OfflineExtractor
@@ -24,8 +29,9 @@ import com.campus.arnav.ocr.LocalOcr
 /**
  * ② 智嘉：粘贴文字 / 选图片 / 贴链接 → 抽活动 → 检查冲突 → 录进课表。
  *
- * 联网抽取（DeepSeek 直连或自建代理）优先；没配任何 AI 通道时自动降级为
- * [OfflineExtractor] 本机规则解析，功能不会「死」。
+ * 联网抽取（内置云端通道）优先；通道不可用时自动降级为 [OfflineExtractor] 本机规则解析，
+ * 功能不会「死」。视觉走 Ins 浅色（白卡 18dp 圆角 + 1dp 描边 + 轻阴影），
+ * 提取 / 冲突处理 / 录入的业务逻辑与回调保持不变。
  */
 class ZhijiaTab(
     private val ctx: Context,
@@ -36,103 +42,141 @@ class ZhijiaTab(
 ) : LinearLayout(ctx) {
 
     private var mode = 0 // 0 文字 1 图片 2 链接
-    private val modeButtons = ArrayList<android.widget.Button>()
-    private val input = editText(ctx, "把学校通知原文粘贴到这里…", android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE)
-    private val imageLabel = textView(ctx, "还没有选择图片", 13f, ctx.color(R.color.text_secondary))
+    private val modeCards = ArrayList<LinearLayout>()
+    private val modeTitles = ArrayList<TextView>()
+    private val modeDescs = ArrayList<TextView>()
+    private val input = editText(
+        ctx,
+        "把学校通知原文粘贴到这里…",
+        InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+    )
+    private val imageLabel = textView(ctx, "还没有选择图片", 12.5f, ctx.color(R.color.text_hint))
     private var imageUri: Uri? = null
     private val pickRow = LinearLayout(ctx)
-    private val status = textView(ctx, "", 12f, ctx.color(R.color.text_secondary))
+    private val status = textView(ctx, "", 12.5f, ctx.color(R.color.text_secondary))
     private val statusRow = LinearLayout(ctx)
-    private val retryBtn = button(ctx, "重试", ctx.color(R.color.bg_card), ctx.color(R.color.accent))
-    private val resultTitle = textView(ctx, "识别结果（勾选要录入的）", 15f, ctx.color(R.color.text_primary), bold = true)
+    private val retryBtn = miniGhost("重试") { if (!extracting) extract() }
+    private val resultTitle = sectionTitle(ctx, "识别结果（勾选要录入的）")
     /** 原文改过、但没重新识别时挂在结果区顶部的提示；提取过一次之后才可能出现。 */
-    private val staleHint = textView(ctx, "内容已修改，点「让智嘉提取活动」重新识别", 12f, ctx.color(R.color.accent_ink))
+    private val staleHint = textView(ctx, "内容已修改，点「让智嘉提取活动」重新识别", 12.5f, ctx.color(R.color.accent_ink))
     private var lastExtractedText = ""
     private var lastFailed = false
     private var emptyNotice = ""
     private val draftBox = LinearLayout(ctx)
     private val drafts = ArrayList<ActivityDraft>()
     private val checked = ArrayList<Boolean>()
-    private val saveBtn = button(ctx, "录入选中活动", ctx.color(R.color.accent), Color.parseColor("#FFFFFF"))
-    private val extractBtn = button(ctx, "让智嘉提取活动", ctx.color(R.color.accent), Color.parseColor("#FFFFFF"))
+    private val saveBtn = pillButton("录入选中活动", primary = false)
+    private val extractBtn = pillButton("让智嘉提取活动", primary = true)
     private var extracting = false
     private var ocrBusy = false
 
     init {
         orientation = VERTICAL
-        // 不铺纯色底，让 MainShell 的 #FFF1F7→#EDF7FF 渐变透出来
+        // 不铺纯色底，让 MainShell 的 #FFF8FB→#EFF7FE 渐变透出来
         setBackgroundColor(Color.TRANSPARENT)
         setPadding(ctx.dp(16), ctx.dp(12), ctx.dp(16), ctx.dp(8))
-        addView(textView(ctx, "智嘉", 24f, ctx.color(R.color.text_primary), bold = true))
-        addView(textView(ctx, "复制通知 → 提取活动 → 冲突处理 → 进课表", 12f, ctx.color(R.color.text_secondary)))
 
-        // 模式
-        val modeRow = LinearLayout(ctx).apply {
-            orientation = HORIZONTAL
-            setPadding(0, ctx.dp(10), 0, ctx.dp(6))
-        }
-        listOf("粘贴文字", "选图片", "贴链接").forEachIndexed { i, name ->
-            val b = button(ctx, name, ctx.color(R.color.bg_card), ctx.color(R.color.text_secondary))
-            b.setOnClickListener { setMode(i) }
-            modeButtons.add(b)
-            modeRow.addView(b, LinearLayout.LayoutParams(0, ctx.dp(38), 1f).apply {
-                if (i > 0) leftMargin = ctx.dp(6)
+        // ---- 顶部：装饰字体标题 + 一行说明 ----
+        val head = LinearLayout(ctx).apply { orientation = VERTICAL }
+        head.addView(titleText(ctx, "智嘉"))
+        head.addView(
+            textView(ctx, "复制通知 → 提取活动 → 冲突处理 → 进课表", 12.5f, ctx.color(R.color.text_secondary))
+                .apply { setPadding(0, ctx.dp(2), 0, 0) }
+        )
+        addView(head)
+
+        // ---- 三个入口小卡：等分、76dp 高、选中粉底粉描边 ----
+        val modeRow = LinearLayout(ctx).apply { orientation = HORIZONTAL }
+        listOf(
+            Triple("✎", "粘贴文字", "粘贴原文"),
+            Triple("▣", "选图片", "选一张截图"),
+            Triple("⛓", "贴链接", "粘贴网址")
+        ).forEachIndexed { i, (glyph, title, desc) ->
+            val c = modeCard(glyph, title, desc) { setMode(i) }
+            modeCards.add(c)
+            modeRow.addView(c, LinearLayout.LayoutParams(0, ctx.dp(76), 1f).apply {
+                if (i > 0) leftMargin = ctx.dp(8)
             })
         }
-        addView(modeRow)
+        addView(modeRow, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = ctx.dp(12) })
 
-        input.minLines = 6
-        addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // ---- 输入框：白底 18dp 圆角、14dp 内边距、至少 5 行 ----
+        input.textSize = 15f
+        input.minLines = 5
+        input.setPadding(ctx.dp(14), ctx.dp(14), ctx.dp(14), ctx.dp(14))
+        input.background = GradientDrawable().apply {
+            cornerRadius = ctx.dp(18).toFloat()
+            setColor(ctx.color(R.color.bg_card))
+            setStroke(ctx.dp(1), ctx.color(R.color.border))
+        }
+        input.setHintTextColor(ctx.color(R.color.text_hint))
+        addView(input, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = ctx.dp(12) })
 
-        imageLabel.setPadding(0, ctx.dp(8), 0, ctx.dp(8))
+        imageLabel.setPadding(0, ctx.dp(10), 0, ctx.dp(10))
         addView(imageLabel)
 
         pickRow.orientation = HORIZONTAL
-        pickRow.addView(button(ctx, "选择图片", ctx.color(R.color.bg_card), ctx.color(R.color.accent)).apply {
-            setOnClickListener { pickImage() }
-        }, LinearLayout.LayoutParams(0, ctx.dp(40), 1f))
-        pickRow.addView(button(ctx, "清除", ctx.color(R.color.bg_card), ctx.color(R.color.text_secondary)).apply {
-            setOnClickListener {
+        pickRow.addView(
+            miniGhost("选择图片") { pickImage() },
+            LinearLayout.LayoutParams(0, ctx.dp(38), 1f)
+        )
+        pickRow.addView(
+            miniGhost("清除") {
                 imageUri = null
                 imageLabel.text = "还没有选择图片"
-                imageLabel.setTextColor(ctx.color(R.color.text_secondary))
-            }
-        }, LinearLayout.LayoutParams(ctx.dp(64), ctx.dp(40)).apply { leftMargin = ctx.dp(6) })
-        addView(pickRow)
+                imageLabel.setTextColor(ctx.color(R.color.text_hint))
+            },
+            LinearLayout.LayoutParams(ctx.dp(72), ctx.dp(38)).apply { leftMargin = ctx.dp(8) }
+        )
+        addView(pickRow, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = ctx.dp(8) })
 
+        // ---- 主按钮：48dp、999 圆角、粉底白字 ----
         extractBtn.setOnClickListener { extract() }
-        addView(extractBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(46)).apply { topMargin = ctx.dp(8) })
+        addView(extractBtn, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(48)
+        ).apply { topMargin = ctx.dp(14) })
 
-        status.setPadding(0, ctx.dp(8), 0, ctx.dp(4))
+        // ---- 状态行：说明 + 失败时才出现的「重试」 ----
+        status.setPadding(0, ctx.dp(10), 0, ctx.dp(4))
         statusRow.orientation = HORIZONTAL
         statusRow.gravity = Gravity.CENTER_VERTICAL
         statusRow.addView(status, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         retryBtn.visibility = GONE
-        retryBtn.setOnClickListener {
-            if (!extracting) extract()
-        }
-        statusRow.addView(retryBtn, LinearLayout.LayoutParams(ctx.dp(64), ctx.dp(34)).apply { leftMargin = ctx.dp(8) })
+        statusRow.addView(
+            retryBtn,
+            LinearLayout.LayoutParams(ctx.dp(64), ctx.dp(32)).apply { leftMargin = ctx.dp(8) }
+        )
         addView(statusRow)
 
-        resultTitle.setPadding(0, ctx.dp(8), 0, ctx.dp(4))
+        // ---- staleHint：浅粉底圆角提示条 ----
         resultTitle.visibility = GONE
         staleHint.apply {
             visibility = GONE
-            background = rounded(ctx, ctx.color(R.color.accent_soft), 10)
-            setPadding(ctx.dp(10), ctx.dp(6), ctx.dp(10), ctx.dp(6))
+            background = rounded(ctx, Color.parseColor("#FFF3F8"), 12)
+            setPadding(ctx.dp(12), ctx.dp(8), ctx.dp(12), ctx.dp(8))
         }
         addView(staleHint, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = ctx.dp(8) })
-        addView(resultTitle)
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = ctx.dp(10) })
+        addView(resultTitle, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = ctx.dp(10) })
         draftBox.orientation = VERTICAL
         addView(draftBox)
 
+        // ---- 次按钮：白底 + 粉描边 + 粉字 ----
         saveBtn.setOnClickListener { saveSelected() }
         saveBtn.visibility = GONE
-        addView(saveBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(46)).apply {
-            topMargin = ctx.dp(10)
+        addView(saveBtn, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(46)
+        ).apply {
+            topMargin = ctx.dp(12)
             bottomMargin = ctx.dp(12)
         })
 
@@ -159,10 +203,19 @@ class ZhijiaTab(
 
     private fun setMode(m: Int) {
         mode = m
-        for ((i, b) in modeButtons.withIndex()) {
+        for ((i, card) in modeCards.withIndex()) {
             val on = i == m
-            b.setTextColor(if (on) Color.parseColor("#FFFFFF") else ctx.color(R.color.text_secondary))
-            b.background = rounded(ctx, if (on) ctx.color(R.color.accent) else ctx.color(R.color.bg_card), 12)
+            card.background = GradientDrawable().apply {
+                cornerRadius = ctx.dp(18).toFloat()
+                setColor(ctx.color(if (on) R.color.accent_soft else R.color.bg_card))
+                setStroke(ctx.dp(1), ctx.color(if (on) R.color.accent else R.color.border))
+            }
+            modeTitles.getOrNull(i)?.setTextColor(
+                ctx.color(if (on) R.color.accent_ink else R.color.text_primary)
+            )
+            modeDescs.getOrNull(i)?.setTextColor(
+                ctx.color(if (on) R.color.accent_ink else R.color.text_hint)
+            )
         }
         input.visibility = if (m == 1) GONE else VISIBLE
         imageLabel.visibility = if (m == 1) VISIBLE else GONE
@@ -192,7 +245,7 @@ class ZhijiaTab(
             }
         }.getOrNull() ?: uri.lastPathSegment ?: "已选图片"
         imageLabel.text = "已选：$name"
-        imageLabel.setTextColor(ctx.color(R.color.accent))
+        imageLabel.setTextColor(ctx.color(R.color.accent_ink))
         setMode(1)
         ocrBusy = false
         status.text = if (SettingsStore.extractOnline(ctx)) {
@@ -200,7 +253,7 @@ class ZhijiaTab(
         } else {
             "已选图片。当前没配 AI 或没网，会用本机识字 + 本机规则处理（图片不出手机）。"
         }
-        status.setTextColor(ctx.color(R.color.accent))
+        status.setTextColor(ctx.color(R.color.text_secondary))
     }
 
     private fun extract() {
@@ -215,7 +268,7 @@ class ZhijiaTab(
             val online = SettingsStore.extractOnline(ctx)
             extracting = true
             extractBtn.isEnabled = false
-            extractBtn.text = "提取中…"
+            extractBtn.text = "识别中…"
             status.setTextColor(ctx.color(R.color.text_secondary))
             Thread {
                 // 云端看图：抽到活动就直接用；失败或为空都记下原因，后面如实告诉用户（不再静默吞掉）
@@ -281,7 +334,7 @@ class ZhijiaTab(
             val online = SettingsStore.extractOnline(ctx)
             extracting = true
             extractBtn.isEnabled = false
-            extractBtn.text = "提取中…"
+            extractBtn.text = "识别中…"
             status.text = when {
                 mode == 2 && text.contains("mp.weixin.qq.com") ->
                     "公众号文章常被反爬拦截，正在尝试抓取；失败请改用截图或粘贴正文"
@@ -328,9 +381,9 @@ class ZhijiaTab(
     }
 
     /**
- * 提取结束：把「云端有没有读出来」如实写在状态行上，并只在失败时露出「重试」。
- * 文案口径：只出现「云端 / 本机」，不出现 Key、接口地址、模型名、堆栈。
- */
+     * 提取结束：把「云端有没有读出来」如实写在状态行上，并只在失败时露出「重试」。
+     * 文案口径：只出现「云端 / 本机」，不出现 Key、接口地址、模型名、堆栈。
+     */
     private fun finishExtract(
         list: List<ActivityDraft>,
         usedOffline: Boolean,
@@ -364,7 +417,7 @@ class ZhijiaTab(
         // 云端其实读完了、只是没有活动 —— 这是「正常但为空」，别用报警红
         status.setTextColor(
             if (list.isEmpty() && (reason != null || !cloudEmpty)) {
-                Color.parseColor("#E8447A")
+                ctx.color(R.color.danger)
             } else {
                 ctx.color(R.color.text_secondary)
             }
@@ -389,7 +442,7 @@ class ZhijiaTab(
         checked.clear()
         emptyNotice = "可点右侧「重试」再跑一次，或把通知原文补全（时间、地点、活动名）后重新提取。"
         status.text = sanitize(message)
-        status.setTextColor(Color.parseColor("#E8447A"))
+        status.setTextColor(ctx.color(R.color.danger))
         lastExtractedText = if (mode == 1) "" else input.text?.toString().orEmpty()
         renderDrafts()
         updateStaleHint()
@@ -439,8 +492,8 @@ class ZhijiaTab(
             return
         }
         for ((i, d) in drafts.withIndex()) {
-            val c = card(ctx, 12).apply {
-                setPadding(ctx.dp(12), ctx.dp(10), ctx.dp(12), ctx.dp(10))
+            val c = card(ctx, 14).apply {
+                setPadding(ctx.dp(12), ctx.dp(12), ctx.dp(12), ctx.dp(12))
                 val head = LinearLayout(ctx).apply {
                     orientation = HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
@@ -451,47 +504,74 @@ class ZhijiaTab(
                     buttonTintList = android.content.res.ColorStateList.valueOf(ctx.color(R.color.accent))
                 }
                 head.addView(cb, LinearLayout.LayoutParams(ctx.dp(40), ctx.dp(40)))
-                head.addView(textView(ctx, d.title, 15f, ctx.color(R.color.text_primary), bold = true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                head.addView(
+                    textView(ctx, d.title, 15f, ctx.color(R.color.text_primary), bold = true),
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                )
                 addView(head)
                 val whenText = if (d.startTime.isBlank()) {
                     if (d.date.isBlank()) "时间待定" else "${d.date}  时间待定"
                 } else {
                     "${d.date}  ${d.startTime}-${d.endTime}"
                 }
-                addView(textView(ctx, whenText, 13f, ctx.color(R.color.accent)))
+                addView(
+                    textView(ctx, whenText, 12.5f, ctx.color(R.color.text_secondary))
+                        .apply { setPadding(0, ctx.dp(6), 0, 0) }
+                )
                 val place = listOf(d.location, d.organizer).filter { it.isNotBlank() }.joinToString(" · ")
-                if (place.isNotBlank()) addView(textView(ctx, place, 12f, ctx.color(R.color.text_secondary)))
-                if (d.note.isNotBlank()) addView(textView(ctx, d.note, 12f, ctx.color(R.color.text_secondary)))
-                if (d.evidence.isNotBlank()) {
-                    addView(textView(ctx, "图上原文：${d.evidence}", 11f, ctx.color(R.color.text_secondary)))
+                if (place.isNotBlank()) {
+                    addView(
+                        textView(ctx, place, 12.5f, ctx.color(R.color.text_secondary))
+                            .apply { setPadding(0, ctx.dp(4), 0, 0) }
+                    )
                 }
-                addView(textView(ctx, "点卡片可修改", 11f, ctx.color(R.color.text_secondary)))
+                if (d.note.isNotBlank()) {
+                    addView(
+                        textView(ctx, d.note, 12f, ctx.color(R.color.text_hint))
+                            .apply { setPadding(0, ctx.dp(4), 0, 0) }
+                    )
+                }
+                if (d.evidence.isNotBlank()) {
+                    addView(
+                        textView(ctx, "图上原文：${d.evidence}", 11.5f, ctx.color(R.color.text_hint))
+                            .apply {
+                                setPadding(0, ctx.dp(6), 0, 0)
+                                maxLines = 1
+                                ellipsize = TextUtils.TruncateAt.END
+                            }
+                    )
+                }
+                addView(
+                    textView(ctx, "点卡片可修改", 11.5f, ctx.color(R.color.text_hint))
+                        .apply { setPadding(0, ctx.dp(6), 0, 0) }
+                )
             }
             c.setOnClickListener { editDraft(i) }
-            draftBox.addView(c, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = ctx.dp(8) })
+            draftBox.addView(c, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = ctx.dp(10) })
         }
     }
 
     /**
-     * 空态常驻卡：首屏/无结果时不靠隐藏标题来消除留白，而是给一条 13sp 提示
+     * 空态常驻卡：首屏/无结果时不靠隐藏标题来消除留白，而是给一条提示
      * 加一个真正可点的入口（去课程表手动加）。
      */
-    private fun emptyCard(): LinearLayout = card(ctx, 14).apply {
-        setPadding(ctx.dp(14), ctx.dp(14), ctx.dp(14), ctx.dp(14))
-        addView(textView(ctx, "粘贴通知或选图片，智嘉会读出时间地点。", 13f, ctx.color(R.color.text_secondary)))
+    private fun emptyCard(): LinearLayout = card(ctx, 16).apply {
+        addView(emptyState(
+            ctx,
+            "把通知交给智嘉",
+            "粘贴通知原文，或选一张截图，自动读出时间、地点、活动名。",
+            "去课程表手动加"
+        ) { onOpenTimetable() })
         if (emptyNotice.isNotBlank()) {
-            addView(textView(ctx, emptyNotice, 12f, ctx.color(R.color.text_secondary)).apply {
-                setPadding(0, ctx.dp(6), 0, 0)
-            })
+            addView(
+                textView(ctx, emptyNotice, 12f, ctx.color(R.color.text_hint)).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(ctx.dp(20), ctx.dp(4), ctx.dp(20), 0)
+                }
+            )
         }
-        addView(
-            button(ctx, "去课程表手动加", ctx.color(R.color.accent_soft), ctx.color(R.color.accent)).apply {
-                setOnClickListener { onOpenTimetable() }
-            },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dp(38)).apply {
-                topMargin = ctx.dp(10)
-            }
-        )
     }
 
     private fun editDraft(i: Int) {
@@ -614,5 +694,82 @@ class ZhijiaTab(
             }
             saveQueue(list, idx + 1, stat)
         }
+    }
+
+    // ---- 小工具：三个入口卡 / 胶囊按钮 / 小 ghost 按钮 ----
+
+    /** 入口小卡：白底 18dp 圆角 + 1dp 描边 + 1dp 阴影，76dp 高。 */
+    private fun modeCard(glyph: String, title: String, desc: String, onClick: () -> Unit): LinearLayout =
+        LinearLayout(ctx).apply {
+            orientation = VERTICAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                cornerRadius = ctx.dp(18).toFloat()
+                setColor(ctx.color(R.color.bg_card))
+                setStroke(ctx.dp(1), ctx.color(R.color.border))
+            }
+            elevation = ctx.dp(1).toFloat()
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, ctx.dp(18).toFloat())
+                }
+            }
+            clipToOutline = true
+            val glyphView = textView(ctx, glyph, 16f, ctx.color(R.color.accent_ink), bold = true)
+                .apply { gravity = Gravity.CENTER }
+            val titleView = textView(ctx, title, 13.5f, ctx.color(R.color.text_primary), bold = true)
+                .apply {
+                    gravity = Gravity.CENTER
+                    setPadding(0, ctx.dp(4), 0, 0)
+                }
+            val descView = textView(ctx, desc, 11f, ctx.color(R.color.text_hint))
+                .apply {
+                    gravity = Gravity.CENTER
+                    setPadding(0, ctx.dp(2), 0, 0)
+                }
+            addView(glyphView)
+            addView(titleView)
+            addView(descView)
+            modeTitles.add(titleView)
+            modeDescs.add(descView)
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
+
+    /** 胶囊按钮：primary = 粉底白字；否则白底 + 粉描边 + 粉字。 */
+    private fun pillButton(text: String, primary: Boolean): TextView = TextView(ctx).apply {
+        this.text = text
+        textSize = 15.5f
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        setTypeface(typeface, android.graphics.Typeface.BOLD)
+        setTextColor(ctx.color(if (primary) R.color.surface else R.color.accent))
+        background = GradientDrawable().apply {
+            cornerRadius = ctx.dp(999).toFloat()
+            if (primary) {
+                setColor(ctx.color(R.color.accent))
+            } else {
+                setColor(ctx.color(R.color.bg_card))
+                setStroke(ctx.dp(1), ctx.color(R.color.accent))
+            }
+        }
+        isClickable = true
+    }
+
+    /** 小 ghost 按钮：白底 + 1dp 描边 + 正文深色字，38dp 高。 */
+    private fun miniGhost(text: String, onClick: () -> Unit): TextView = TextView(ctx).apply {
+        this.text = text
+        textSize = 12.5f
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        setTextColor(ctx.color(R.color.text_primary))
+        background = GradientDrawable().apply {
+            cornerRadius = ctx.dp(14).toFloat()
+            setColor(ctx.color(R.color.bg_card))
+            setStroke(ctx.dp(1), ctx.color(R.color.border))
+        }
+        setPadding(ctx.dp(12), 0, ctx.dp(12), 0)
+        isClickable = true
+        setOnClickListener { onClick() }
     }
 }

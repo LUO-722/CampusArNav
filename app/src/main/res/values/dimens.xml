@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Ins 浅色设计系统 · 尺寸令牌（task-38） -->
+    <dimen name="space_xs">4dp</dimen>
+    <dimen name="space_s">8dp</dimen>
+    <dimen name="space_m">12dp</dimen>
+    <dimen name="space_l">16dp</dimen>
+    <dimen name="space_xl">20dp</dimen>
+    <dimen name="space_xxl">24dp</dimen>
+
+    <dimen name="radius_card">20dp</dimen>
+    <dimen name="radius_btn">14dp</dimen>
+    <dimen name="radius_chip">999dp</dimen>
+    <dimen name="radius_img">16dp</dimen>
+    <dimen name="radius_sheet">24dp</dimen>
+    <dimen name="radius_block">10dp</dimen>
+
+    <dimen name="stroke_hair">1dp</dimen>
+    <dimen name="elev_card">2dp</dimen>
+    <dimen name="elev_float">6dp</dimen>
+</resources>

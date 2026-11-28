@@ -10,7 +10,6 @@ import android.text.method.PasswordTransformationMethod
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageView
@@ -24,16 +23,19 @@ import com.campus.arnav.data.Course
 import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.net.JwxtClient
-import com.campus.arnav.ui.insLightBars
-import com.campus.arnav.ui.insBackground
 import com.campus.arnav.ui.applySystemBarInsets
-import com.campus.arnav.ui.button
+import com.campus.arnav.ui.captionText
 import com.campus.arnav.ui.card
+import com.campus.arnav.ui.chip
 import com.campus.arnav.ui.color
 import com.campus.arnav.ui.dp
 import com.campus.arnav.ui.editText
-import com.campus.arnav.ui.rounded
+import com.campus.arnav.ui.ghostButton
+import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.insLightBars
+import com.campus.arnav.ui.primaryButton
 import com.campus.arnav.ui.textView
+import com.campus.arnav.ui.titleText
 
 /**
  * 登录页：学号 + 密码 + 内网/外网选择，登录教务系统并首次同步课表/考试/成绩。
@@ -55,7 +57,8 @@ class LoginActivity : AppCompatActivity() {
     private lateinit var wanWrap: LinearLayout
     private lateinit var hint: TextView
     private lateinit var status: TextView
-    private lateinit var loginBtn: Button
+    private lateinit var loginBtn: TextView
+    private lateinit var eye: TextView
 
     private var captchaRow: LinearLayout? = null
     private var captchaImage: ImageView? = null
@@ -86,81 +89,103 @@ class LoginActivity : AppCompatActivity() {
         val session = AuthStore.session(this)
         mode = session.mode
 
-        // 标题
-        box.addView(textView(this, "科文智嘉", 30f, color(R.color.text_primary), bold = true))
-        box.addView(textView(this, "登录教务系统 · 学号 + 密码", 13f, color(R.color.text_secondary))
-            .apply { setPadding(0, dp(4), 0, dp(18)) })
+        // 标题区：64dp 圆形 logo + 装饰字体标题 + 副标题
+        box.addView(logoView(), LinearLayout.LayoutParams(dp(64), dp(64)))
+        box.addView(titleText(this, "科文智嘉").apply {
+            setPadding(0, dp(14), 0, 0)
+        })
+        box.addView(captionText(this, "登录教务系统（可选）· 学号 + 密码").apply {
+            setPadding(0, dp(4), 0, dp(18))
+        })
 
         // ① 账号卡
-        val accCard = card(this, 14)
-        accCard.addView(textView(this, "学号", 11f, color(R.color.text_secondary)))
+        val accCard = card(this, 18)
+        accCard.addView(captionText(this, "学号"))
         accountInput = editText(this, "例如 2026010101", InputType.TYPE_CLASS_TEXT,
             if (session.remember) session.account else "")
-        accCard.addView(accountInput)
+        accCard.addView(accountInput, inputLp())
 
-        accCard.addView(textView(this, "密码", 11f, color(R.color.text_secondary))
-            .apply { setPadding(0, dp(8), 0, 0) })
-        passwordInput = editText(this, "学校内网登录密码", InputType.TYPE_CLASS_TEXT, session.password)
-            .apply { mask() }
-        accCard.addView(passwordInput)
-        accCard.addView(textView(this, "显示密码", 11f, color(R.color.accent_ink)).apply {
-            setPadding(0, dp(6), 0, 0)
+        val pwdHead = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, 0)
+        }
+        pwdHead.addView(captionText(this, "密码"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        eye = TextView(this).apply {
+            text = "显示"
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(color(R.color.primary))
+            setPadding(dp(8), dp(4), dp(4), dp(4))
             setOnClickListener {
                 if (passwordInput.transformationMethod == null) {
                     passwordInput.mask()
-                    text = "显示密码"
+                    text = "显示"
                 } else {
                     passwordInput.inputType = InputType.TYPE_CLASS_TEXT
                     passwordInput.transformationMethod = null
-                    text = "隐藏密码"
+                    text = "隐藏"
                 }
             }
-        })
+        }
+        pwdHead.addView(eye, LinearLayout.LayoutParams(dp(56), dp(28)))
+        accCard.addView(pwdHead)
+
+        passwordInput = editText(this, "学校内网登录密码", InputType.TYPE_CLASS_TEXT, session.password)
+            .apply { mask() }
+        accCard.addView(passwordInput, inputLp())
+
         rememberBox = CheckBox(this).apply {
             text = "记住学号和密码（只存本机，加密保存）"
             textSize = 12f
             setTextColor(color(R.color.text_secondary))
             isChecked = session.remember
+            setPadding(0, dp(6), 0, 0)
         }
         accCard.addView(rememberBox)
         box.addView(accCard, cardLp())
 
         // ② 网络选择卡
-        val netCard = card(this, 14)
-        netCard.addView(textView(this, "登录网络", 16f, color(R.color.text_primary), bold = true))
+        val netCard = card(this, 18)
+        netCard.addView(textView(this, "登录网络", 15f, color(R.color.text_primary), bold = true))
         netCard.addView(textView(this,
             "内网：全天可登录（需连校园网）。外网：开放时段 09:00—18:00，时段外可试但可能不通。",
-            11f, color(R.color.text_secondary)).apply { setPadding(0, dp(4), 0, dp(10)) })
+            12f, color(R.color.text_secondary)).apply { setPadding(0, dp(4), 0, dp(10)) })
 
         val chipRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 0, 0, dp(10))
         }
-        lanChip = chip("内网 · 全天")
-        wanChip = chip("外网 · 9:00—18:00")
-        chipRow.addView(lanChip, LinearLayout.LayoutParams(0, dp(40), 1f))
-        chipRow.addView(wanChip, LinearLayout.LayoutParams(0, dp(40), 1f).apply { leftMargin = dp(8) })
+        lanChip = chip(this, "内网 · 全天", mode == AuthStore.MODE_LAN)
+        wanChip = chip(this, "外网 · 9:00—18:00", mode != AuthStore.MODE_LAN)
+        chipRow.addView(lanChip, LinearLayout.LayoutParams(0, dp(36), 1f))
+        chipRow.addView(wanChip, LinearLayout.LayoutParams(0, dp(36), 1f).apply { leftMargin = dp(8) })
         netCard.addView(chipRow)
 
         // 内网地址
         lanWrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        lanWrap.addView(textView(this, "内网地址", 11f, color(R.color.text_secondary)))
+        lanWrap.addView(captionText(this, "内网地址"))
         lanInput = editText(this, "http://10.110.225.76/jsxsd/",
             InputType.TYPE_TEXT_VARIATION_URI, session.lanBase)
-        lanWrap.addView(lanInput)
+        lanWrap.addView(lanInput, inputLp())
         netCard.addView(lanWrap)
 
         // 外网地址
         wanWrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        wanWrap.addView(textView(this, "外网地址（学校外网访问入口）", 11f, color(R.color.text_secondary))
-            .apply { setPadding(0, dp(8), 0, 0) })
+        wanWrap.addView(captionText(this, "外网地址（学校外网访问入口）").apply {
+            setPadding(0, dp(8), 0, 0)
+        })
         wanInput = editText(this, AuthStore.DEFAULT_WAN_BASE,
             InputType.TYPE_TEXT_VARIATION_URI, session.wanBase)
-        wanWrap.addView(wanInput)
+        wanWrap.addView(wanInput, inputLp())
         netCard.addView(wanWrap)
 
-        hint = textView(this, "", 11f, color(R.color.accent_ink)).apply {
-            setPadding(0, dp(8), 0, 0)
+        hint = TextView(this).apply {
+            textSize = 12.5f
+            setTextColor(color(R.color.warn))
+            setLineSpacing(0f, 1.35f)
+            includeFontPadding = false
+            setPadding(0, dp(10), 0, 0)
         }
         netCard.addView(hint)
         box.addView(netCard, cardLp())
@@ -187,11 +212,11 @@ class LoginActivity : AppCompatActivity() {
         capRow.addView(img, LinearLayout.LayoutParams(dp(110), dp(42)))
         capRow.addView(code, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             .apply { leftMargin = dp(8) })
-        val refresh = textView(this, "换一张", 12f, color(R.color.accent_ink)).apply {
+        val refresh = textView(this, "换一张", 12f, color(R.color.primary)).apply {
             setPadding(dp(10), dp(6), 0, dp(6))
             setOnClickListener {
                 captchaInput?.setText("")
-                status.text = "正在获取验证码…"
+                setStatus("正在获取验证码…")
                 probeCaptcha()
             }
         }
@@ -202,29 +227,28 @@ class LoginActivity : AppCompatActivity() {
         box.addView(capRow, cardLp())
 
         // ④ 状态 + 按钮
-        status = textView(this, "", 12f, color(R.color.text_secondary)).apply {
-            setPadding(0, dp(14), 0, dp(6))
+        status = TextView(this).apply {
+            textSize = 12.5f
+            setTextColor(color(R.color.text_secondary))
+            setPadding(0, dp(14), 0, dp(8))
         }
         box.addView(status)
 
-        loginBtn = button(this, "登录并同步", color(R.color.accent), Color.parseColor("#FFFFFF")).apply {
-            textSize = 16f
+        loginBtn = primaryButton(this, "登录并同步").apply {
             setOnClickListener { doLogin() }
         }
-        box.addView(loginBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+        box.addView(loginBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
 
         if (session.loggedIn) {
-            val enter = button(this, "直接进入（上次已登录，用已缓存内容）",
-                color(R.color.bg_card), color(R.color.text_primary)).apply {
-                textSize = 14f
+            val enter = ghostButton(this, "直接进入（上次已登录）").apply {
                 setOnClickListener { enterApp() }
             }
             box.addView(enter, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48))
                 .apply { topMargin = dp(10) })
         }
 
-        val offline = button(this, "先离线使用（不同步课表）", color(R.color.bg_card), color(R.color.text_secondary)).apply {
-            textSize = 13f
+        val offline = ghostButton(this, "先离线使用（不同步课表）").apply {
+            setTextColor(color(R.color.text_secondary))
             setOnClickListener { enterApp() }
         }
         box.addView(offline, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46))
@@ -234,9 +258,40 @@ class LoginActivity : AppCompatActivity() {
             "· 学号密码只存在本机：密码用 AndroidKeyStore 加密，不上传任何服务器。\n" +
                 "· 登录成功后会把课表、考试、成绩页面原文存到 App 私有目录，并尝试解析课表。\n" +
                 "· 内网地址 10.x 只在校内网络可访问；外网入口开放 09:00—18:00，已缓存内容随时可看。",
-            11f, color(R.color.text_secondary)).apply { setPadding(0, dp(16), 0, 0) })
+            12f, color(R.color.text_hint)).apply {
+            setPadding(0, dp(18), 0, 0)
+            setLineSpacing(0f, 1.5f)
+            includeFontPadding = false
+        })
 
-        status.text = if (session.loggedIn) "上次已登录，可直接进入；也可以重新登录以刷新数据。" else "填好学号密码后点「登录并同步」。"
+        setStatus(if (session.loggedIn) "上次已登录，可直接进入；也可以重新登录以刷新数据。" else "填好学号密码后点「登录并同步」。")
+    }
+
+    // ---------------- 视觉小部件 ----------------
+
+    private fun logoView(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(color(R.color.primary_soft))
+        }
+        addView(TextView(this@LoginActivity).apply {
+            text = "智"
+            textSize = 24f
+            setTextColor(color(R.color.primary_deep))
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+        })
+    }
+
+    private fun inputLp() = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+    ).apply { topMargin = dp(6) }
+
+    private fun setStatus(msg: String, error: Boolean = false) {
+        status.text = msg
+        status.setTextColor(color(if (error) R.color.danger else R.color.text_secondary))
     }
 
     // ---------------- 交互 ----------------
@@ -250,7 +305,7 @@ class LoginActivity : AppCompatActivity() {
         wanWrap.visibility = if (lan) View.GONE else View.VISIBLE
         if (lan) {
             hint.text = "内网全天可登录，需要手机连着校园网。"
-            hint.setTextColor(color(R.color.accent_ink))
+            hint.setTextColor(color(R.color.warn))
         } else {
             val blocked = AuthStore.wanBlocked()
             hint.text = if (blocked) {
@@ -258,24 +313,21 @@ class LoginActivity : AppCompatActivity() {
             } else {
                 "现在 ${AuthStore.nowText()}，外网开放时段内（${AuthStore.wanWindowText()}），可以直接登录。"
             }
-            hint.setTextColor(if (blocked) color(R.color.accent_ink) else color(R.color.blue_ink))
+            hint.setTextColor(if (blocked) color(R.color.warn) else color(R.color.blue_ink))
         }
     }
 
-    private fun chip(text: String): TextView = TextView(this).apply {
-        this.text = text
-        textSize = 13f
-        gravity = Gravity.CENTER
-        setPadding(dp(8), 0, dp(8), 0)
-    }
-
+    /** 与 Ui.chip 的视觉保持一致：胶囊、选中粉底深字 + 主色描边。 */
     private fun paintChip(v: TextView, selected: Boolean, label: String) {
         v.text = label
+        v.textSize = 13f
+        v.gravity = Gravity.CENTER
+        v.setPadding(dp(12), 0, dp(12), 0)
         v.setTextColor(if (selected) color(R.color.accent_ink) else color(R.color.text_secondary))
         v.background = GradientDrawable().apply {
-            cornerRadius = dp(12).toFloat()
-            setColor(if (selected) Color.parseColor("#FFE3EE") else color(R.color.bg_dark))
-            if (selected) setStroke(dp(1), color(R.color.accent))
+            cornerRadius = dp(999).toFloat()
+            setColor(if (selected) color(R.color.accent_soft) else color(R.color.bg_card))
+            setStroke(dp(1), if (selected) color(R.color.accent) else color(R.color.border))
         }
     }
 
@@ -301,7 +353,7 @@ class LoginActivity : AppCompatActivity() {
         val acc = accountInput.text.toString().trim()
         val pwd = passwordInput.text.toString()
         if (base.isBlank() || acc.isBlank() || pwd.isBlank()) {
-            status.text = "先填好学号、密码和地址。"
+            setStatus("先填好学号、密码和地址。", error = true)
             return
         }
         Thread {
@@ -310,7 +362,7 @@ class LoginActivity : AppCompatActivity() {
                 if (r.needCaptcha) {
                     showCaptcha(r.captcha, "请输入验证码。")
                 } else {
-                    status.text = r.message
+                    setStatus(r.message)
                 }
             }
         }.start()
@@ -319,7 +371,7 @@ class LoginActivity : AppCompatActivity() {
     private fun showCaptcha(bmp: Bitmap?, msg: String) {
         captchaRow?.visibility = View.VISIBLE
         captchaImage?.setImageBitmap(bmp)
-        status.text = if (bmp == null) "$msg（验证码图片没取到，可点「换一张」重试）" else msg
+        setStatus(if (bmp == null) "$msg（验证码图片没取到，可点「换一张」重试）" else msg)
     }
 
     private fun doLogin() {
@@ -327,31 +379,31 @@ class LoginActivity : AppCompatActivity() {
         val acc = accountInput.text.toString().trim()
         val pwd = passwordInput.text.toString()
         if (acc.isBlank() || pwd.isBlank()) {
-            status.text = "学号和密码都要填。"
+            setStatus("学号和密码都要填。", error = true)
             return
         }
         // 外网时段只做提示，不拦登录：时段内一般更通，时段外也允许试一次，真连不上由网络层报错。
         val outsideWindow = mode == AuthStore.MODE_WAN && AuthStore.wanBlocked()
         val base = base()
         if (base.isBlank()) {
-            status.text = if (mode == AuthStore.MODE_WAN) "外网地址还没填。" else "内网地址不能为空。"
+            setStatus(if (mode == AuthStore.MODE_WAN) "外网地址还没填。" else "内网地址不能为空。", error = true)
             return
         }
         val captcha = captchaInput?.text?.toString()?.trim() ?: ""
         busy = true
         loginBtn.isEnabled = false
         loginBtn.text = "连接中…"
-        status.text = if (outsideWindow) {
+        setStatus(if (outsideWindow) {
             "正在连接教务系统…（现在不在外网开放时段，若失败请 9:00—18:00 再试）"
         } else {
             "正在连接教务系统…"
-        }
+        })
 
         Thread {
             val r = JwxtClient.login(base, acc, pwd, captcha)
             if (!r.ok) {
                 ui {
-                    if (r.needCaptcha) showCaptcha(r.captcha, r.message) else status.text = r.message
+                    if (r.needCaptcha) showCaptcha(r.captcha, r.message) else setStatus(r.message, error = true)
                     busy = false
                     loginBtn.isEnabled = true
                     loginBtn.text = "登录并同步"
@@ -363,7 +415,7 @@ class LoginActivity : AppCompatActivity() {
                 rememberBox.isChecked)
             AuthStore.setLoggedIn(this, true)
             ui {
-                status.text = "登录成功，开始同步课表 / 考试 / 成绩…"
+                setStatus("登录成功，开始同步课表 / 考试 / 成绩…")
                 loginBtn.text = "同步中…"
                 captchaRow?.visibility = View.GONE
             }

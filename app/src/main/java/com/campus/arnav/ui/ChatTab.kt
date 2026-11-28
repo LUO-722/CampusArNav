@@ -139,7 +139,7 @@ class ChatTab(
         modelLabel.setPadding(ctx.dp(14), ctx.dp(6), ctx.dp(14), ctx.dp(2))
         // 模型通道是构建期内置的，没有可选项：点一下只解释「无需配置」，不再弹配置菜单
         modelLabel.setOnClickListener {
-            ctx.toast("云端模型随网络自动切换，无需配置；断网时自动用离线知识库。")
+            ctx.toast("不用配置。联网时用云端模型，断网时自动用本地知识库。")
         }
         addView(modelLabel)
 
@@ -507,9 +507,9 @@ class ChatTab(
     fun refreshProvider() {
         val p = SettingsStore.chatProvider(ctx)
         modelLabel.text = if (p.ready()) {
-            "当前：云端模型（内置，无需配置） · 断网自动切离线知识库"
+            "当前：云端模型，无需配置；断网时自动用本地知识库。"
         } else {
-            "离线知识库模式（云端通道未内置，问答走本机知识库）"
+            "离线模式：问答只用手机里的知识库。"
         }
     }
 
@@ -519,14 +519,14 @@ class ChatTab(
             return
         }
         if (viewingHistory) return
-        // 图片走本机 ML Kit OCR：离线、不上传、不依赖云端配置
+        // 图片走手机本地文字识别：离线、不上传、不依赖云端配置
         onPickImage()
     }
 
     /** MainShell 的图片选择器回调：先本机识文字，填进输入框，用户确认后再发送。 */
     fun onImagePicked(uri: Uri?) {
         if (uri == null || sending || viewingHistory) return
-        ctx.toast("正在本机识别图片文字（不上传）…")
+        ctx.toast("正在本地识别图片文字（不会上传）…")
         Thread {
             try {
                 val text = LocalOcr.recognizeLines(ctx, uri)
@@ -536,11 +536,11 @@ class ChatTab(
                     } else {
                         input.setText(text)
                         input.setSelection(text.length)
-                        ctx.toast("本机已识别 ${text.length} 字（图片未上传），确认后点「发送」")
+                        ctx.toast("本地已识别 ${text.length} 字（图片没有上传），确认后点「发送」")
                     }
                 }
             } catch (e: Exception) {
-                post { ctx.toast("本机识字失败：${e.message}") }
+                post { ctx.toast("本地识别失败，换一张图再试。") }
             }
         }.start()
     }
@@ -598,7 +598,7 @@ class ChatTab(
                 if (cancelFlag) return@Thread
                 // 断网 / 模型全部限流 / 云端报错：不让对话断在这里，直接用离线知识库答
                 val reply = answerOffline(context, text)
-                post { completeOffline(reply + "\n\n（云端暂时不可用，已用离线知识库回答）") }
+                post { completeOffline(reply + "\n\n（云端暂时不可用，这里用本地知识库回答）") }
             }
         }.start()
     }
@@ -614,15 +614,14 @@ class ChatTab(
             emptyList()
         }
         if (hits.isEmpty()) {
-            return "本机知识库里暂时没找到和「$query」相关的内容。换个说法（例如「图书馆 开放时间」「宿舍门禁」）再试，" +
-                "联网后再问一次会用云端模型补充回答。\n\n（离线知识库回答）"
+            return "本地知识库里没找到和「$query」相关的内容。换个说法再试，联网后我再查一次。\n\n（离线回答）"
         }
         val sb = StringBuilder("根据学校知识库：")
         hits.forEachIndexed { i, h ->
             sb.append("\n${i + 1}. ").append(h.title)
             sb.append("\n").append(h.text.trim().take(260).replace("\n", " "))
         }
-        sb.append("\n\n（离线知识库回答）")
+        sb.append("\n\n（离线回答）")
         return sb.toString()
     }
 

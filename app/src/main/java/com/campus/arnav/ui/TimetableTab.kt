@@ -365,7 +365,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
             orientation = HORIZONTAL
             setPadding(0, ctx.dp(4), 0, ctx.dp(4))
         }
-        ops2.addView(softBtn("导出 / 分享", cBody) { exportShare() },
+        ops2.addView(softBtn("导出或分享", cBody) { exportShare() },
             LinearLayout.LayoutParams(0, ctx.dp(40), 1f))
         ops2.addView(softBtn("＋活动", cInk) { addActivity() },
             LinearLayout.LayoutParams(0, ctx.dp(40), 1f).apply { leftMargin = ctx.dp(6) })
@@ -618,8 +618,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
                 wk,
                 items.size,
                 shownDate == today,
-                captionFor(shownDate),
-                photoFor(shownDate)
+                "潘安湖校区"
             ),
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
@@ -730,20 +729,6 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
         }
         return ScheduleLogic.formatDate(cal.time)
     }
-
-    private fun photoIndex(date: String): Int {
-        val d = ScheduleLogic.parseDate(date) ?: Date()
-        val cal = Calendar.getInstance().apply { time = d }
-        return cal.get(Calendar.DAY_OF_YEAR) % 3
-    }
-
-    private fun photoFor(date: String): Int = intArrayOf(
-        R.drawable.hero_lake, R.drawable.hero_fjord, R.drawable.hero_fall
-    )[photoIndex(date)]
-
-    private fun captionFor(date: String): String = arrayOf(
-        "潘安湖畔伴清风", "云影天光共一色", "秋林染尽匠心楼"
-    )[photoIndex(date)]
 
     // ---------------- 下面这些是原有的弹窗 / 导入导出逻辑，未改动 ----------------
 
@@ -1044,7 +1029,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
             putExtra(Intent.EXTRA_SUBJECT, "科文智嘉课表备份")
             putExtra(Intent.EXTRA_TEXT, root.toString(2))
         }
-        ctx.startActivity(Intent.createChooser(send, "导出 / 分享课表与活动"))
+        ctx.startActivity(Intent.createChooser(send, "导出或分享课表与活动"))
     }
 
 
@@ -1074,7 +1059,7 @@ class TimetableTab(private val ctx: Context) : LinearLayout(ctx) {
     }
 
     private fun importDialog() {
-        val modes = listOf("教务/表格文本（导入会先清空旧课表）", "JSON 课表（导入会先清空旧课表）", "取消")
+        val modes = listOf("教务或表格文本（导入会先清空旧课表）", "JSON 课表（导入会先清空旧课表）", "取消")
         choose(ctx, "导入课表", modes) { which ->
             when (which) {
                 0 -> inputForm(

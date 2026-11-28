@@ -1,41 +1,36 @@
 *.iml
 .gradle/
 .kotlin/
-/local.properties
-/.idea/
+.idea/
 .DS_Store
-/build
-/app/build
-/captures
+build/
+app/build/
+captures
 .externalNativeBuild
 .cxx
+
+# 本机配置（含云端 Key 与签名口令），不提交
 local.properties
-*.apk
-*.aab
+keystore.properties
+*.jks
 *.keystore
 !debug.keystore
-# 教务系统抓取缓存（含个人数据，不入库）
-_jwxt_dump/
 
-# 临时分析/调试脚本与抓包样本（一次性用，不入库）
+# 打包产物
+*.apk
+*.aab
+
+# 教务抓取缓存含个人数据，不入库
+_jwxt_dump/
+_shots/
+__pycache__/
+
+# 调试期的临时脚本、截图与一次性报告
 _*.py
 _*.ps1
 _*.txt
 _*.html
 _*.xml
 _*.json
-_shots/
 _*.md
-
-
-# 一次性排查报告
-_内网登录排查.md
-
 _*.png
-
-__pycache__/
-
-# 发布签名（本机生成，不入库）：keystore.properties 引用同目录的 zhijia-release.jks
-/keystore.properties
-/zhijia-release.jks
-*.jks

@@ -65,7 +65,7 @@ class ProfileTab(
         titleCol.addView(
             textView(
                 ctx,
-                "${st.semesterName} · 第 ${st.currentWeek} / ${st.totalWeeks} 周",
+                "${st.semesterName} · 第 ${st.currentWeek} 周（共 ${st.totalWeeks} 周）",
                 12.5f,
                 ctx.color(R.color.text_secondary)
             ).apply { setPadding(0, ctx.dp(2), 0, 0) }
@@ -406,8 +406,8 @@ class ProfileTab(
             textView(
                 ctx,
                 "· 学籍与课表来自教务系统，原文留档在「教务原文」里可逐字核对。\n" +
-                    "· 身份证号、家庭住址等敏感信息不落库、不显示。\n" +
-                    "· 资料只存本机，不上传；知识库为离线快照。",
+                    "· 身份证号、家庭住址等敏感信息不保存、不显示。\n" +
+                    "· 资料只保存在本机，不会上传；知识库是离线版。",
                 11.5f,
                 ctx.color(R.color.text_hint)
             ).apply {
@@ -584,7 +584,7 @@ class ProfileTab(
     private fun editProfile() {
         val p = ProfileStore.get(ctx)
         inputForm(ctx, "编辑学籍信息", listOf(
-            "姓名 / 昵称" to p.nick,
+            "姓名或昵称" to p.nick,
             "学号" to p.sid,
             "院系" to p.college,
             "专业" to p.major,
@@ -616,7 +616,7 @@ class ProfileTab(
             putExtra(Intent.EXTRA_TEXT, json)
         }
         try {
-            ctx.startActivity(Intent.createChooser(send, "导出 / 分享课表"))
+            ctx.startActivity(Intent.createChooser(send, "导出或分享课表"))
         } catch (e: Exception) {
             ctx.toast("没有找到可分享的应用：${e.message}")
         }
@@ -746,6 +746,6 @@ class ProfileTab(
     }
 
     private fun about() {
-        ctx.toast("科文智嘉 · 课程表 / 智嘉 / 导航 / 对话 / 我的 · 离线知识库")
+        ctx.toast("科文智嘉 · 离线知识库")
     }
 }

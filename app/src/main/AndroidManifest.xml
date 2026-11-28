@@ -11,17 +11,14 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <!-- 设闹钟走系统时钟的「新建闹钟」界面；失败时 App 会明确提示原因（该权限只是声明，
-         Android 12+ 真正生效还需要系统设置里的「闹钟和提醒」授权）。 -->
+    <!-- 设闹钟走系统时钟界面；Android 12+ 还需用户在系统设置里允许「闹钟和提醒」 -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
     <uses-feature android:name="android.hardware.sensor.compass" android:required="false" />
 
-    <!-- Android 11+ 包可见性（<queries>）：看不到目标 App 时 resolveActivity 会直接返回 null，
-         表现成「明明装了时钟/地图，App 却说没有」。
-         - SET_ALARM / SET_TIMER / SHOW_ALARMS：Agent 设闹钟前用 resolveActivity 判断本机有没有时钟应用；
-         - VIEW geo:/https:：导航「拉起地图 App 看路线」「用浏览器打开」同理。 -->
+    <!-- Android 11+ 的包可见性声明：不声明时 resolveActivity 直接返回 null，
+         表现为「本机装了时钟/地图，App 却说没有」。 -->
     <queries>
         <intent>
             <action android:name="android.intent.action.SET_ALARM" />
@@ -50,7 +47,7 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.CampusAr">
 
-        <!-- 登录教务降级为应用内页面：不再做 LAUNCHER，只从「我的 / 课程表提示条」进来 -->
+        <!-- 登录页只是应用内页面，从「我的」或课程表提示条进入 -->
         <activity
             android:name=".LoginActivity"
             android:screenOrientation="portrait"
@@ -75,9 +72,7 @@
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:exported="false" />
-        <!-- 首屏：冷启动直接进课程表主壳（先看产品，登录是可选项）。
-             singleTask：LoginActivity.enterApp() 会 startActivity 主壳，
-             单实例避免登录回来后叠出第二层主壳。 -->
+        <!-- 首屏。singleTask 是为了登录成功后回到主壳时不叠出第二层 -->
         <activity
             android:name=".MainShellActivity"
             android:screenOrientation="portrait"
@@ -102,10 +97,5 @@
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
-
-        <activity
-            android:name=".MainActivity"
-            android:screenOrientation="portrait"
-            android:exported="false" />
     </application>
 </manifest>

@@ -249,9 +249,9 @@ class ZhijiaTab(
         setMode(1)
         ocrBusy = false
         status.text = if (SettingsStore.extractOnline(ctx)) {
-            "已选图片。点「让智嘉提取活动」，会由看图模型理解整张图（图片上传云端，仅用于识别、不保存）。"
+            "已选图片。点「让智嘉提取活动」，图片会上传到云端识别，只用于识别，不会保存。"
         } else {
-            "已选图片。当前没配 AI 或没网，会用本机识字 + 本机规则处理（图片不出手机）。"
+            "已选图片。现在没联网，图片只在手机本地识别，不会上传。"
         }
         status.setTextColor(ctx.color(R.color.text_secondary))
     }
@@ -275,7 +275,7 @@ class ZhijiaTab(
                 var cloudError: String? = null
                 var cloudEmpty = false
                 if (online) {
-                    post { status.text = "AI 正在读图（图片上传云端，仅用于识别、不保存）…" }
+                    post { status.text = "正在识别图片（图片会上传到云端，只用于识别，不会保存）…" }
                     try {
                         val b64 = NoticeExtractor.loadImageBase64(ctx, uri)
                         val out = NoticeExtractor.extractImage(ctx, b64, "image/jpeg")
@@ -284,16 +284,16 @@ class ZhijiaTab(
                             return@Thread
                         }
                         cloudEmpty = true
-                        post { status.text = "云端看完了，图里没找到活动；再用本机规则找一遍…" }
+                        post { status.text = "云端没找到活动，再用本地规则找一遍…" }
                     } catch (e: Exception) {
                         cloudError = whyText(e)
-                        post { status.text = "云端没读出来：$cloudError；改在本机识字…" }
+                        post { status.text = "云端没读出来：$cloudError；改用本地识字…" }
                     }
                 }
                 // 兜底：本机识字（离线、不上传）+ 本机规则
                 try {
                     post {
-                        status.text = if (online) "本机识字中（图片不再上传）…" else "本机识字 + 本机规则（图片不出手机）…"
+                        status.text = if (online) "本地识字中（图片不再上传）…" else "本地识字和规则一起跑（图片不出手机）…"
                     }
                     val text = LocalOcr.recognizeLines(ctx, uri)
                     if (text.isBlank()) {
@@ -339,8 +339,8 @@ class ZhijiaTab(
                 mode == 2 && text.contains("mp.weixin.qq.com") ->
                     "公众号文章常被反爬拦截，正在尝试抓取；失败请改用截图或粘贴正文"
                 mode == 2 -> "正在抓网页正文…"
-                online -> "正在让 AI 提取活动…"
-                else -> "正在用本机规则提取活动（不需要联网）…"
+                online -> "正在提取活动…"
+                else -> "正在用本地规则提取活动（不需要联网）…"
             }
             status.setTextColor(ctx.color(R.color.text_secondary))
             Thread {
@@ -400,19 +400,19 @@ class ZhijiaTab(
         val reason = cloudError?.take(80)
         status.text = when {
             list.isNotEmpty() && reason != null && usedOffline ->
-                "云端没读出来：$reason；已用本机规则识别 ${list.size} 项，核对后录入。"
+                "云端没读出来：$reason；本地识别出 ${list.size} 项，核对后录入。"
             list.isNotEmpty() && reason != null ->
-                "云端看图没读懂：$reason；改用文字模型读到了 ${list.size} 项，核对后录入。"
+                "云端没读懂图片：$reason；改用文字识别读到 ${list.size} 项，核对后录入。"
             list.isNotEmpty() && usedOffline ->
-                "本机规则识别成功 ${list.size} 项（离线处理，文字/图片都没出手机），核对后录入。"
+                "本地识别出 ${list.size} 项（未联网），核对后录入。"
             list.isNotEmpty() ->
                 "识别到 ${list.size} 项活动，核对后录入。"
             reason != null ->
-                "云端没读出来：$reason；已用本机规则重试。"
+                "云端没读出来：$reason；已改用本地识别重试。"
             cloudEmpty ->
-                "看完了，这段内容里没有需要到场/报名的活动。"
+                "这段内容里没有可录入的活动。"
             else ->
-                "本机没认出时间地点，可手动在课程表里＋活动。"
+                "没认出时间和地点，可以到课程表里手动加活动。"
         }
         // 云端其实读完了、只是没有活动 —— 这是「正常但为空」，别用报警红
         status.setTextColor(
@@ -423,7 +423,7 @@ class ZhijiaTab(
             }
         )
         emptyNotice = if (list.isEmpty()) {
-            "可点右侧「重试」再跑一次，或把通知原文补全（时间、地点、活动名）后重新提取。"
+            "可以点「重试」再试一次，或把时间、地点和活动名补全后重新提取。"
         } else {
             ""
         }
@@ -440,7 +440,7 @@ class ZhijiaTab(
         retryBtn.visibility = VISIBLE
         drafts.clear()
         checked.clear()
-        emptyNotice = "可点右侧「重试」再跑一次，或把通知原文补全（时间、地点、活动名）后重新提取。"
+        emptyNotice = "可以点「重试」再试一次，或把时间、地点和活动名补全后重新提取。"
         status.text = sanitize(message)
         status.setTextColor(ctx.color(R.color.danger))
         lastExtractedText = if (mode == 1) "" else input.text?.toString().orEmpty()

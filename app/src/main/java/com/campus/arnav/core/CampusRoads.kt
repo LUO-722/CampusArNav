@@ -29,7 +29,7 @@ object CampusRoads {
     const val ASSET = "campus_roads.json"
 
     /** 吸附上限：离最近道路节点超过这个距离就认为不在校内。 */
-    const val SNAP_LIMIT_METERS = 400.0
+    const val ROADS_SNAP_LIMIT_M = 400.0
 
     private var latA = DoubleArray(0)
     private var lonA = DoubleArray(0)
@@ -313,7 +313,7 @@ object CampusRoads {
         val b = resolve(ctx, to) ?: return null
         val near = nearestNode(lat, lon)
         if (near < 0) return null
-        if (meters2(lat, lon, near) > SNAP_LIMIT_METERS) return null
+        if (meters2(lat, lon, near) > ROADS_SNAP_LIMIT_M) return null
         val ids = astar(near, nodeOf(b)) ?: return null
         val p = pathOf(ids, b.name)
         val pts = ArrayList<Pair<Double, Double>>(p.points.size + 1)

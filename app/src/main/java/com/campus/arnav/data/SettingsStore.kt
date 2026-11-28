@@ -7,11 +7,11 @@ import com.campus.arnav.core.NetState
 /**
  * 一次请求要用的通道参数。
  *
- * 0.11.0 起只有一条内置通道：阿里云百炼（OpenAI 兼容）。地址 / Key / 模型链都在构建期
- * 从 local.properties 注入 [BuildConfig]，界面上不暴露、也不需要用户填写。
+ * 只有一条内置通道：阿里云百炼（OpenAI 兼容）。地址 / Key / 模型链都在构建期从
+ * local.properties 注入 [BuildConfig]，界面上不暴露、也不需要用户填写。
  *
- * 旧版本的「自建代理」字段已删除：即使升级用户手机里还留着代理地址，也没有任何代码
- * 会读它——[SettingsStore.clearLegacy] 会把残留一次性清掉，请求永远不会再被改道。
+ * 自建代理字段已经没有任何读写方，本机即使还留着代理地址也不会改道请求；
+ * [SettingsStore.clearLegacy] 会把残留一次清掉。
  */
 data class Provider(
     val base: String,
@@ -32,16 +32,16 @@ data class Provider(
  * 通道与提醒 / 学期设置。云端通道在构建期注入，用户侧没有任何 Key / 地址 / 代理可填：
  * 有网自动走内置云端模型，没网自动降级到本机规则 + 离线知识库，功能照常可用。
  *
- * 旧版（≤0.10.x）把 DeepSeek Key、看图 Key、自建代理写进同一份 SharedPreferences，
- * 其中 `ai_proxy_base` 非空会让所有请求改道到早已不存在的代理——表现为「云端一直失败、
- * 提取不了文字」。[clearLegacy] 用 `legacy_cleared_v1` 标记只跑一次，并从 [builtin] /
- * [vision] / [deepseek] 里惰性触发，保证任何请求发起前旧配置一定已经清掉。
+ * 本机可能残留旧配置：DeepSeek Key、看图 Key、自建代理都曾写在同一份 SharedPreferences 里，
+ * 其中 `ai_proxy_base` 非空会让请求改道到不存在的代理，表现为「云端一直失败、提取不了文字」。
+ * [clearLegacy] 用 `legacy_cleared_v1` 标记只跑一次，并从 [builtin] / [vision] / [deepseek]
+ * 惰性触发，保证请求发起前旧配置已经清掉。
  */
 object SettingsStore {
 
     private const val PREF = "zhijia_settings"
 
-    /** 旧版（≤0.10.x）才有的字段：现在只剩清理逻辑会碰它们，不再有写入方。 */
+    /** 旧配置留下的字段：现在只剩清理逻辑会碰，不再有写入方。 */
     private val LEGACY_KEYS = arrayOf(
         "ai_proxy_base", "ai_proxy_token",
         "ds_key", "ds_base", "ds_model",
@@ -52,7 +52,7 @@ object SettingsStore {
     private const val LEGACY_FLAG = "legacy_cleared_v1"
 
     /**
-     * 联网搜索用的模型链（2026-11-27 实测，见 `_search_fix.md`）：
+     * 联网搜索用的模型链：
      * - 四个模型在带 `enable_search` 时都能拿到外部信息；
      * - `qwen-max` 实测在 `response_format=json_object` 下只输出一串数字、跑满 token，故意不放进链里。
      */
@@ -81,6 +81,8 @@ object SettingsStore {
      * 旧通道探针：只给离线自检的「旧通道已废弃」检查用（`debug/SelfCheck.kt`），
      * 不参与真实请求。新代码请用 [builtin] / [chatProvider] / [vision]。
      */
+    /** 旧直连通道，仅供自检确认它不会被误用，业务代码不要调用。 */
+    @Deprecated("内置通道已取代，仅自检使用")
     fun deepseek(ctx: Context): Provider {
         clearLegacy(ctx)
         val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)

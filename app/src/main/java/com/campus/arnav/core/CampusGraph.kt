@@ -5,19 +5,12 @@ import java.io.File
 import org.json.JSONObject
 
 /**
- * 离线校园路网：`assets/campus_graph.json` 里 38 个路口 + 23 个楼门口 + 4 个校门，
- * 楼栋坐标与 [RouteRepository] 完全一致；路口按官方卫星底图 + 实测路网方位估算，
- * 楼门口取「楼心朝最近路口偏移 20 米」。所以算出来的距离是**步行估算**，
- * 不是测绘数据，页面需要标注「实景路线」。
+ * 离线校园路网基线：`assets/campus_graph.json` 里 38 个路口 + 23 个楼门口 + 3 个校门。
+ * 楼栋坐标与 [RouteRepository] 一致，路口按官方卫星底图 + 实测方位估算，距离是**步行估算**。
  *
- * 用法：
- * ```
- * if (CampusGraph.load(ctx)) {
- *     val names = CampusGraph.buildings()            // 目的地下拉框
- *     val p = CampusGraph.route("南门", "明志楼")    // 或 routeFromPoint(gpsLat, gpsLon, "明志楼")
- * }
- * ```
- * 全部方法都可重复调用；[load] 只解析一次，失败返回 false（调用方回退到直线距离）。
+ * 现状：导航算路已改用 [CampusRoads]（沿真实道路走），本类不再参与寻路；保留它是为了
+ * 「测绘并入」链路 —— [load] 时把 `filesDir/road_extra.json`（[RoadMerge] 写出的现场
+ * 轨迹增量）并进基线，之后再把基线回灌到 assets。`load()` 只解析一次，失败返回 false。
  */
 object CampusGraph {
 
@@ -25,7 +18,7 @@ object CampusGraph {
     const val ASSET = "campus_graph.json"
 
     /** 吸附上限：离最近路口/楼门口超过这个距离就认为「不在校内」，不算路线。 */
-    const val SNAP_LIMIT_METERS = 300.0
+    const val GRAPH_SNAP_LIMIT_M = 300.0
 
     /** 路网节点。[kind] ∈ junction / building / gate / door / landmark。 */
     class Node(
@@ -134,7 +127,7 @@ object CampusGraph {
         val b = findDest(g, toBuilding) ?: return null
         val snap = nearestExterior(g, lat, lon) ?: return null
         val snapDist = GeoUtils.distanceMeters(lat, lon, snap.lat, snap.lon)
-        if (snapDist > SNAP_LIMIT_METERS) return null
+        if (snapDist > GRAPH_SNAP_LIMIT_M) return null
         val goal = endpoint(g, b) ?: return null
         val ids = Navigator.path(g, snap.id, goal.first) ?: return null
 

@@ -18,6 +18,7 @@ import java.util.Locale
  */
 object PoiStore {
 
+// 这份偏好比 zhijia_* 那批早，改名要写迁移，先保留原名。
     private const val PREF = "poi_overrides"
 
     /** 新写入点的坐标系：与底图 / RouteRepository / 高德 URI 同一口径。 */

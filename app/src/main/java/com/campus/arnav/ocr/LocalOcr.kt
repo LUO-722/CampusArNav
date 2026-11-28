@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
  * 本机离线 OCR：ML Kit 中文文字识别（模型随 APK 打包，断网可用）。
  *
  * 只识别图片里的文字，不联网、不上传图片、不需要 API Key。
- * 识别结果交给调用方填进文字框，再由用户决定是否用 DeepSeek 抽取活动/回答。
+ * 识别结果交给调用方填进文字框，再由内置云端通道抽取活动信息活动/回答。
  */
 object LocalOcr {
 

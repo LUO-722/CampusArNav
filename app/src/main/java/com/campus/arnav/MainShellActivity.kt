@@ -24,6 +24,7 @@ import com.campus.arnav.data.CourseStore
 import com.campus.arnav.data.SettingsStore
 import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.insBackground
+import com.campus.arnav.ui.primaryButton
 import com.campus.arnav.ui.ChatTab
 import com.campus.arnav.ui.NavTab
 import com.campus.arnav.ui.ProfileTab
@@ -88,10 +89,9 @@ class MainShellActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         insLightBars()
-        Log.i("MainShell", "onCreate saved=" + (savedInstanceState != null) + " tabArg=" + (savedInstanceState?.getInt("tab", -1) ?: -1))
         // 数据库/偏好设置读取也可能因为老库结构异常抛错，同样不能让它把 App 带崩
         runCatching { SettingsStore.applySemester(this); CourseStore.seedDemoIfEmpty(this) }
-            .onFailure { Log.e("MainShell", "prepare data failed", it) }
+            .onFailure { Log.e("CampusArNav", "prepare data failed", it) }
         loginStamp = loginStampNow()
 
         val root = LinearLayout(this).apply {
@@ -122,7 +122,7 @@ class MainShellActivity : AppCompatActivity() {
         root.addView(navBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(62)))
 
         // 页面构造统一兜底：任一页面初始化失败（例如老数据库结构不对）不能让整个 App 闪退，
-        // 改为在内容区显示可读的错误信息，用户截个图就能定位。
+        // 改为显示一句提示和「重试」，异常只进日志。
         var buildError: Throwable? = null
         runCatching {
         timetable = TimetableTab(this)
@@ -144,7 +144,7 @@ class MainShellActivity : AppCompatActivity() {
             onOpenSettings = { openSettings() },
             onOpenTimetable = { switchTab(0) }
         )
-        }.onFailure { buildError = it; Log.e("MainShell", "buildTabs failed", it) }
+        }.onFailure { buildError = it; Log.e("CampusArNav", "buildTabs failed", it) }
         tabBuildError = buildError
 
         // 五个 tab：22dp 矢量图标 + 10.5sp 文字竖排；选中时图标/文字都用 accent，并在图标后面垫浅粉胶囊。
@@ -257,7 +257,6 @@ class MainShellActivity : AppCompatActivity() {
     }
 
     private fun switchTab(i: Int) {
-        Log.i("MainShell", "switchTab " + i + " (was " + current + ")")
         current = i
         content.removeAllViews()
         val view: View = try {
@@ -269,7 +268,7 @@ class MainShellActivity : AppCompatActivity() {
                 else -> { profile.refresh(); profile }
             }
         } catch (e: Throwable) {
-            Log.e("MainShell", "switchTab " + i + " failed", e)
+            Log.e("CampusArNav", "switchTab " + i + " failed", e)
             errorView(tabBuildError ?: e)
         }
         val shown: View = if (i == 0 || i == 1 || i == 4) {
@@ -291,25 +290,20 @@ class MainShellActivity : AppCompatActivity() {
         }
     }
 
-    /** 出错时替代页面内容：标题 + 异常信息 + 前几行堆栈（用户可直接截图反馈）。 */
+    /** 出错时替代页面内容：一句人话 + 重试按钮；异常只进日志，不上屏。 */
     private fun errorView(e: Throwable): View {
+        Log.e("CampusArNav", "tab error", e)
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(24), dp(18), dp(24))
         }
-        box.addView(textView(this@MainShellActivity, "这一页没能加载出来", 18f, color(R.color.text_primary), bold = true))
-        box.addView(textView(this@MainShellActivity, e.toString().take(400), 12f, color(R.color.accent_ink)).apply {
-            setPadding(0, dp(10), 0, 0)
-        })
-        val trace = e.stackTraceToString().lineSequence().take(8).joinToString("\n")
-        box.addView(textView(this@MainShellActivity, trace, 10f, color(R.color.text_secondary)).apply {
+        box.addView(textView(this@MainShellActivity, "这一页没能打开", 18f, color(R.color.text_primary), bold = true))
+        box.addView(textView(this@MainShellActivity, "返回上一页，或者重试一次。", 13f, color(R.color.text_secondary)).apply {
             setPadding(0, dp(8), 0, 0)
         })
-        box.addView(textView(
-            this@MainShellActivity,
-            "其它页面还能用；把这张截图发给开发即可定位。",
-            12f, color(R.color.text_secondary)
-        ).apply { setPadding(0, dp(12), 0, 0) })
+        box.addView(primaryButton(this@MainShellActivity, "重试").apply {
+            setOnClickListener { switchTab(current) }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply { topMargin = dp(16) })
         return ScrollView(this).apply { addView(box) }
     }
 

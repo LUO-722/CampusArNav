@@ -12,7 +12,7 @@ import java.util.UUID
  * 单条会话最多保留 [MAX_ROWS] 条消息。当前会话的 sid 记在 SharedPreferences
  * `zhijia_chat/current_sid`。
  *
- * v2 → v3 迁移把没有 sid 的历史消息全部挂到 [LEGACY_SID]（标题「历史记录」）会话下。
+ * 老库迁移过来的消息没有会话 id，统一挂到 [LEGACY_SID]（标题「历史记录」）会话下。
  */
 object ChatStore {
 
@@ -23,7 +23,7 @@ object ChatStore {
     /** 会话标题最多保留的字数（超出截断，第 19 个字起丢弃）。 */
     const val TITLE_MAX = 18
 
-    /** v2 及以前没有会话概念，迁移后的历史消息统一挂在它下面。 */
+    /** 老库没有会话概念，迁移过来的历史消息统一挂在它下面。 */
     const val LEGACY_SID = "legacy"
 
     private fun db(ctx: Context): SQLiteDatabase = AppDb.get(ctx).writableDatabase

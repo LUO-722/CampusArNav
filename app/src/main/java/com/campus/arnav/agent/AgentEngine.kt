@@ -1,6 +1,5 @@
 package com.campus.arnav.agent
 
-import android.util.Log
 
 import android.content.Context
 import com.campus.arnav.data.ChatMsg
@@ -18,8 +17,6 @@ import java.util.Locale
  * 聊天 Agent：知识库检索 + 模型决策 + 动作执行。
  * 模型按约定返回 {"reply": "...", "actions": [...]}；动作由 [ActionExecutor] 执行。
  */
-private const val TAG_AI = "ZhijiaAI"
-
 object AgentEngine {
 
     data class Result(
@@ -122,7 +119,6 @@ object AgentEngine {
             msgs.add(ChatMsg("user", userText))
         }
 
-        Log.i(TAG_AI, "ASK q=" + userText + " kb=" + kbHits.size + " web=" + web)
         val raw = if (onPartial == null) {
             LlmClient.chat(provider, msgs, jsonMode = true, search = web)
         } else {
@@ -131,20 +127,18 @@ object AgentEngine {
                 onPartial(replySoFar(buf))
             }
         }
-        Log.i(TAG_AI, "RAW len=" + raw.length + " :" + raw.take(400))
         // 偶发故障兜底：模型这次没吐出可读回答（纯数字/空/乱码）→ 非流式再请求一次
         val firstReply = parse(raw)?.optString("reply") ?: ""
         val retry = if (AnswerRules.looksLikeAnswer(firstReply)) raw else runCatching {
             LlmClient.chat(provider, msgs, jsonMode = true, search = web)
         }.getOrNull()
         if (retry != null && retry !== raw) {
-            Log.i(TAG_AI, "RETRY len=" + retry.length + " :" + retry.take(300))
             return handle(ctx, retry, kbHits)
         }
         return handle(ctx, raw, kbHits)
     }
 
-    /** 聊天页发图片：必须用通义 VL（多模态），其余流程与 [ask] 一致。 */
+    /** 聊天页发图片：走内置云端模型的视觉通道（与聊天同一通道，不单独配置），其余流程与 [ask] 一致。 */
     fun askImage(ctx: Context, history: List<ChatMsg>, userText: String, imageBase64: String): Result {
         val provider = SettingsStore.vision(ctx)
         if (!provider.ready()) {

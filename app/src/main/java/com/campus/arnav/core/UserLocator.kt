@@ -8,7 +8,6 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlin.math.abs
 
@@ -55,8 +54,6 @@ data class Fix(
  *    消费者（NavTab、ArNavActivity、CalibrateActivity）拿到就是最终坐标，不要再转。
  */
 object UserLocator {
-
-    private const val TAG = "UserLocator"
 
     /** 没有可用定位（未授权 / 定位关闭 / 无 Provider）时的精度标记，UI 见到它就切手动起点。 */
     const val NO_FIX_ACCURACY = 500f
@@ -140,17 +137,13 @@ object UserLocator {
         }
         for (p in wanted) {
             try {
-                if (!manager.isProviderEnabled(p)) {
-                    Log.i(TAG, "provider disabled: $p")
-                    continue
-                }
+                if (!manager.isProviderEnabled(p)) continue
                 manager.requestLocationUpdates(p, MIN_TIME_MS, MIN_DISTANCE_M, listener, mainHandler.looper)
                 providers.add(p)
-                Log.i(TAG, "listen: $p ($MIN_TIME_MS ms / $MIN_DISTANCE_M m)")
-            } catch (e: SecurityException) {
-                Log.w(TAG, "no permission for $p", e)
-            } catch (e: Exception) {
-                Log.w(TAG, "cannot listen $p: ${e.message}")
+            } catch (_: SecurityException) {
+                // 没有定位权限：跳过这个 provider，用剩下的
+            } catch (_: Exception) {
+                // 注册失败（定位服务异常）：同样跳过，不影响其它 provider
             }
         }
 
@@ -177,10 +170,10 @@ object UserLocator {
         if (manager != null) {
             try {
                 manager.removeUpdates(listener)
-            } catch (e: SecurityException) {
-                Log.w(TAG, "removeUpdates without permission", e)
-            } catch (e: Exception) {
-                Log.w(TAG, "removeUpdates: ${e.message}")
+            } catch (_: SecurityException) {
+                // 没权限时本来就没有监听可摘，忽略
+            } catch (_: Exception) {
+                // 忽略：停止时抛异常不影响下面的状态复位
             }
         }
         providers.clear()
@@ -246,7 +239,6 @@ object UserLocator {
             val dt = abs(t - prev.atMillis)
             val moved = GeoUtils.distanceMeters(prev.lat, prev.lon, lat, lon)
             if (dt < DRIFT_WINDOW_MS && moved > DRIFT_MAX_M) {
-                Log.i(TAG, "drop drift: ${"%.0f".format(moved)} m in $dt ms")
                 return
             }
         }
@@ -281,7 +273,6 @@ object UserLocator {
         fallbackSent = true
         // 没有真正注册监听：把 started 复位，用户去系统里打开定位/授权后再调 start() 还能生效
         started = false
-        Log.i(TAG, "no fix: $reason")
         val fix = Fix(
             lat = 0.0,
             lon = 0.0,

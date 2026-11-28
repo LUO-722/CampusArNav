@@ -7,7 +7,6 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
-import android.util.Log
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
@@ -29,7 +28,6 @@ import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.ArrowOverlayView
 import com.campus.arnav.ui.CompassRoseView
 import com.campus.arnav.ui.applySystemBarInsets
-import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.atan
@@ -52,8 +50,6 @@ class ArNavActivity : AppCompatActivity(), HeadingProvider.Listener {
     private var lastFixTime = 0L
     private var lastAccuracy = 99f
     private var weakSince = 0L
-    private var lastLocLog = 0L
-    private var lastHeadingLog = 0L
 
     private val permLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -81,18 +77,6 @@ class ArNavActivity : AppCompatActivity(), HeadingProvider.Listener {
 
             updateWeakSignal()
 
-            if (System.currentTimeMillis() - lastLocLog > 1000) {
-                lastLocLog = System.currentTimeMillis()
-                Log.d(
-                    TAG,
-                    String.format(
-                        Locale.US,
-                        "loc provider=%s acc=%.1fm lat=%.6f lon=%.6f (GCJ-02) bearing=%.1f dist=%.1fm arrived=%s",
-                        loc.provider, lastAccuracy, gcj.first, gcj.second,
-                        st.bearingToTarget, st.distanceToTarget, st.arrived
-                    )
-                )
-            }
         }
     }
 
@@ -206,15 +190,6 @@ class ArNavActivity : AppCompatActivity(), HeadingProvider.Listener {
 
                 overlay.horizontalFovDeg = Math.toDegrees(effRad)
                 overlay.refresh()
-                Log.d(
-                    TAG,
-                    String.format(
-                        Locale.US,
-                        "camera sensor=%.2fx%.2fmm focal=%.2fmm imgAspect=%.3f viewAspect=%.3f hFovPortrait=%.2f effFov=%.2f",
-                        sensorW, sensorH, focalD, imgAspect, viewAspect,
-                        Math.toDegrees(hFovPortrait), Math.toDegrees(effRad)
-                    )
-                )
             }
         } catch (e: Exception) {
             // 保底 62°
@@ -271,17 +246,6 @@ class ArNavActivity : AppCompatActivity(), HeadingProvider.Listener {
         overlay.refresh()
         rose.headingDeg = headingDeg
         if (twoDMode) rose.refresh()
-        if (System.currentTimeMillis() - lastHeadingLog > 1000) {
-            lastHeadingLog = System.currentTimeMillis()
-            Log.d(
-                TAG,
-                String.format(
-                    Locale.US,
-                    "heading=%.1f acc=%.1f fov=%.1f rel=%.1f arrowX=%.0f",
-                    headingDeg, accuracyDeg, overlay.horizontalFovDeg, overlay.lastRelDeg, overlay.lastArrowX
-                )
-            )
-        }
     }
 
     override fun onDestroy() {
@@ -294,7 +258,4 @@ class ArNavActivity : AppCompatActivity(), HeadingProvider.Listener {
         cameraExecutor.shutdown()
     }
 
-    companion object {
-        const val TAG = "CampusArNav"
-    }
 }

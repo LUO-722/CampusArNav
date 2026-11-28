@@ -45,10 +45,10 @@ import java.net.URLEncoder
 
 /**
  * ③ 校园导航（2D 版）：
- *  - 主视图是自绘离线地图 [CampusMapView]，路线来自离线路网 [CampusGraph] 的 A* 算路；
+ * 地图用自绘的 VectorMapView，路线来自 CampusRoads 的 A* 结果。
  *  - 可用 GPS 定位作为起点并跟随（[UserLocator]），定位不可用时退回「南门」；
  *  - AR 实景与外部地图路线降级为可选入口，不再当主力。
- *  - 上方可切「卫星图 / 导览图」，左上角图例、左下角指北针、右下角缩放，均不依赖外部地图应用。
+ *  - 底图是与卫星影像对齐的底图，路线画在真实道路上。
  */
 class NavTab(private val ctx: Context) : LinearLayout(ctx) {
 
@@ -387,7 +387,7 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
         updateExtraPaths()
         CampusRoads.reload(ctx)
         renderSurveyState()
-        ctx.toast("已保存轨迹 ${t.pts.size} 个点 / ${t.meters} 米；并入路网：新增 ${r.addedEdges} 段")
+        ctx.toast("已保存这段轨迹，共 ${t.pts.size} 个点、${t.meters} 米；路网已更新。")
     }
 
     private fun renderSurveyState() {
@@ -767,18 +767,17 @@ class NavTab(private val ctx: Context) : LinearLayout(ctx) {
                     2 -> AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
                         .setTitle("关于坐标")
                         .setMessage(
-                            "· GPS 已自动换算：手机给的是 WGS-84，App 内部统一成 GCJ-02 再画蓝点和算距离。\n" +
-                                "· 蓝点不会偏：它和楼栋、底图用的是同一套坐标，误差只剩 GPS 本身的几米。\n" +
-                                "· 旧的取点数据是换算前的口径，会偏约 560 米；可在「设置 → 地图与定位」一键清理后重新取点。"
+                            "· 手机定位和地图已经对齐，蓝点不会偏。\n" +
+                                "· 旧版保存的取点位置会差约 560 米；可以在「设置 → 地图与定位」里清理后重新取点。"
                         )
                         .setPositiveButton("知道了", null)
                         .show()
                     3 -> AlertDialog.Builder(ctx, R.style.Theme_CampusAr_Dialog)
                         .setTitle("路线说明")
                         .setMessage(
-                            "· 底图是高德卫星影像（GCJ-02，与楼栋/路网同一套坐标），楼与路的相对位置按实景对齐。\n" +
-                                "· 路线由校内路网 A* 算出（745 个路网节点 / 4443 段连通，主干道 + 步道 + 可穿行广场），距离是沿路累加，不是直线。\n" +
-                                "· 走到楼附近以门牌和路牌为准；AR 实景仅作最后 30 米参考。"
+                            "· 底图是卫星影像，楼和道路的位置按实景对齐。\n" +
+                                "· 路线沿校内道路计算，距离按实际路径累加，不是直线距离。\n" +
+                                "· 走到楼附近以门牌和路牌为准；AR 实景只作最后 30 米的参考。"
                         )
                         .setPositiveButton("知道了", null)
                         .show()

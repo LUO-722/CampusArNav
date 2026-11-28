@@ -8,7 +8,7 @@ import org.json.JSONObject
  * 自绘 2D 平面图的矢量数据：建筑/水面/绿地都是多边形，道路是折线，全部是经纬度（GCJ-02）。
  *
  * 数据在 `assets/campus_vector.json`，由 `_build_vector.py` 从官方四张图的测绘结果生成
- * （先以 `campus_ortho.jpg` 的像素坐标测量，再用 [CampusProjection] 的配准矩阵换算成经纬度）。
+ * 楼体、水面、绿地和道路的起点来自底图读点，坐标统一成 GCJ-02，与卫星底图同一套坐标系。
  * 地图**不使用任何位图**，全部由 [com.campus.arnav.ui.VectorMapView] 画出来。
  */
 class CampusVector(

@@ -3,7 +3,6 @@ package com.campus.arnav
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.util.Log
 import android.view.View
 import android.widget.Button
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,7 +16,6 @@ import com.campus.arnav.core.HeadingProvider
 import com.campus.arnav.ui.insLightBars
 import com.campus.arnav.ui.ArrowOverlayView
 import com.campus.arnav.ui.applySystemBarInsets
-import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -96,13 +94,7 @@ class CompassTestActivity : AppCompatActivity(), HeadingProvider.Listener {
     override fun onHeadingChanged(headingDeg: Float, accuracyDeg: Float) {
         overlay.headingDeg = headingDeg
         overlay.refresh()
-        if (System.currentTimeMillis() - lastLog > 1000) {
-            lastLog = System.currentTimeMillis()
-            Log.d(TAG, String.format(Locale.US, "compass heading=%.1f acc=%.1f", headingDeg, accuracyDeg))
-        }
     }
-
-    private var lastLog = 0L
 
     override fun onDestroy() {
         super.onDestroy()
@@ -110,7 +102,4 @@ class CompassTestActivity : AppCompatActivity(), HeadingProvider.Listener {
         cameraExecutor.shutdown()
     }
 
-    companion object {
-        const val TAG = "CampusArNav"
-    }
 }

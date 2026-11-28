@@ -101,7 +101,7 @@ class LoginActivity : AppCompatActivity() {
         // ① 账号卡
         val accCard = card(this, 18)
         accCard.addView(captionText(this, "学号"))
-        accountInput = editText(this, "例如 2026010101", InputType.TYPE_CLASS_TEXT,
+        accountInput = editText(this, "例如 9926264225", InputType.TYPE_CLASS_TEXT,
             if (session.remember) session.account else "")
         accCard.addView(accountInput, inputLp())
 
@@ -255,9 +255,9 @@ class LoginActivity : AppCompatActivity() {
             .apply { topMargin = dp(10) })
 
         box.addView(textView(this,
-            "· 学号密码只存在本机：密码用 AndroidKeyStore 加密，不上传任何服务器。\n" +
-                "· 登录成功后会把课表、考试、成绩页面原文存到 App 私有目录，并尝试解析课表。\n" +
-                "· 内网地址 10.x 只在校内网络可访问；外网入口开放 09:00—18:00，已缓存内容随时可看。",
+            "· 学号密码只保存在本机，加密后存储，不上传任何服务器。\n" +
+                "· 登录成功后会把课表、考试、成绩的页面原文存到 App 私有目录，并尝试解析课表。\n" +
+                "· 内网只在学校网络里能访问；外网入口 9:00—18:00 开放，已缓存的内容随时可看。",
             12f, color(R.color.text_hint)).apply {
             setPadding(0, dp(18), 0, 0)
             setLineSpacing(0f, 1.5f)
@@ -469,7 +469,7 @@ class LoginActivity : AppCompatActivity() {
             append("\n课表课程 ").append(imported).append(" 门")
             append("，考试 ").append(exams).append(" 条")
             append("，成绩 ").append(grades).append(" 条")
-            if (sync.saved.isNotEmpty()) append("\n本机存档：" + sync.saved.joinToString("、"))
+            if (sync.saved.isNotEmpty()) append("\n已保存到本机：" + sync.saved.joinToString("、"))
             if (demoLeft > 0) append("\n\n课表里还有 ").append(demoLeft).append(" 门示例课程，可以一起清掉。")
         }
         val builder = AlertDialog.Builder(this, R.style.Theme_CampusAr_Dialog)
@@ -498,7 +498,7 @@ class LoginActivity : AppCompatActivity() {
         AlertDialog.Builder(this, R.style.Theme_CampusAr_Dialog)
             .setTitle("同步未完成")
             .setMessage(
-                "$reason\n\n已保留本机原有课表（$local 条）。\n" +
+                "$reason\n\n已保留原来的课表（$local 条）。\n" +
                     "可稍后在「我的」页重新同步；连校园网或在外网开放时段（09:00—18:00）成功率更高。"
             )
             .setPositiveButton("知道了") { _, _ -> enterApp() }

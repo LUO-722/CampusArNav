@@ -17,7 +17,7 @@ import java.util.Locale
 
 /**
  * 从通知文字/图片里抽取活动。文本走内置云端通道（JSON 模式），
- * 图片走内置通义 VL；通道不可用时抛异常，由 UI 回落到本机规则。
+ * 图片走内置看图模型；通道不可用时抛异常，由 UI 回落到本机规则。
  */
 object NoticeExtractor {
 

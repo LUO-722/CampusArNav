@@ -99,7 +99,7 @@ class SettingsActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { leftMargin = dp(12) })
         box.addView(titleRow)
-        box.addView(captionText(this, "无需任何配置：有网络自动用云端模型，没有网络自动用离线知识库 + 本机规则。").apply {
+        box.addView(captionText(this, "不用配置。联网时由云端处理，断网时自动用本地知识库。").apply {
             setPadding(0, dp(6), 0, dp(4))
         })
 
@@ -120,7 +120,7 @@ class SettingsActivity : AppCompatActivity() {
         })
         authCard.addView(infoRow("学号", auth.account.ifBlank { "未填写" }))
         authCard.addView(divider(this))
-        authCard.addView(infoRow("登录网络", auth.modeLabel() + " · " + auth.base().ifBlank { "地址未填" }))
+        authCard.addView(infoRow("登录网络", auth.modeLabel() + "，" + auth.base().ifBlank { "地址未填" }))
         authCard.addView(divider(this))
         authCard.addView(infoRow("最近同步", AuthStore.lastSyncText(this)))
         authCard.addView(actionRow(
@@ -139,13 +139,13 @@ class SettingsActivity : AppCompatActivity() {
         ))
         box.addView(authCard, cardLp())
 
-        // ③ 图片识别（本机 OCR）
+        // ③ 图片识别（本地文字识别）
         val ocrCard = card(this, 18)
         ocrCard.addView(cardHeader("图片识别", null))
         ocrCard.addView(textView(this,
-            "智嘉选图、对话发图时，有网络会交内置看图模型理解整张图，断网时用手机本机的 ML Kit 中文 OCR 兜底；" +
+            "选图或发图时，联网会由云端识别整张图，断网时用手机本地文字识别兜底；" +
                 "只把识别结果用于本次处理，图片不留存。\n" +
-                "适合截图、票据、通知照片、界面文字。识别结果会先填入文字框，可修改后再提取。",
+                "适合截图、票据、通知照片、界面文字。识别结果会先填入文字框，改好后再提取。",
             12.5f, color(R.color.text_secondary)
         ).apply { setPadding(0, dp(8), 0, 2) })
         box.addView(ocrCard, cardLp())
@@ -239,8 +239,8 @@ class SettingsActivity : AppCompatActivity() {
         val mapCard = card(this, 18)
         mapCard.addView(cardHeader("地图与定位", null))
         mapCard.addView(textView(this,
-            "坐标基准：GCJ-02（国内底图口径）。手机 GPS 已自动换算，界面里的蓝点与楼栋底图不会再偏。\n" +
-                "旧版「取点校准」存的是 GPS 原始坐标（WGS-84），按现在的口径解释会偏约 560 米 —— 可以一键清理后重新取点。",
+            "定位和地图已经对齐，蓝点不会偏。\n" +
+                "旧版保存的取点会差约 560 米，可以一键清理后重新取点。",
             12.5f, color(R.color.text_secondary)
         ).apply { setPadding(0, dp(8), 0, dp(6)) })
         mapCard.addView(actionRow(
@@ -267,10 +267,8 @@ class SettingsActivity : AppCompatActivity() {
         })
 
         box.addView(textView(this,
-            "· 打开即用：云端模型已内置，无需任何配置。\n" +
-                "· 有网络时自动接入云端（问答、录活动、写课表都在云端判断）；断网自动切离线知识库 + 本机规则。\n" +
-                "· 图片文字识别走手机本机 ML Kit 中文 OCR，离线、免费、不传图片。\n" +
-                "· 路线跳转走系统地图 App（URI），无需配置。",
+            "· 所有数据只存在本机，不上传。\n" +
+                "· 云端不可用时，自动改用本地知识库。",
             12f, color(R.color.text_hint)
         ).apply {
             setPadding(0, dp(2), 0, 0)
@@ -284,9 +282,9 @@ class SettingsActivity : AppCompatActivity() {
     // ---------------- 教务系统 ----------------
 
     private fun authSummary(a: AuthStore.Session): String {
-        val wanNote = if (a.mode == AuthStore.MODE_WAN && AuthStore.wanBlocked()) " · 不在外网开放时段" else ""
+        val wanNote = if (a.mode == AuthStore.MODE_WAN && AuthStore.wanBlocked()) "，不在外网开放时段" else ""
         return if (a.loggedIn) {
-            "已登录（${a.modeLabel()}）$wanNote；可立即同步课表 / 考试 / 成绩。"
+            "已登录（${a.modeLabel()}）$wanNote；可立即同步课表、考试和成绩。"
         } else {
             "未登录。未登录也能用课程表、智嘉、导航、对话，只是不同步教务数据。"
         }
@@ -529,8 +527,8 @@ class SettingsActivity : AppCompatActivity() {
             }
         }, LinearLayout.LayoutParams(dp(8), dp(8)).apply { rightMargin = dp(10) })
         val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        texts.addView(textView(this, "阿里云百炼 · 主模型 DeepSeek-V4.1-Flash", 14f, color(R.color.text_primary)))
-        texts.addView(textView(this, "已内置，无需任何配置；无网络时自动切离线知识库", 12f, color(R.color.text_hint)).apply {
+        texts.addView(textView(this, "云端模型 · 已内置（无需配置）", 14f, color(R.color.text_primary)))
+        texts.addView(textView(this, "联网时自动使用，断网时改用本地知识库。", 12f, color(R.color.text_hint)).apply {
             setPadding(0, dp(4), 0, 0)
         })
         row.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -542,14 +540,14 @@ class SettingsActivity : AppCompatActivity() {
         AlertDialog.Builder(this, R.style.Theme_CampusAr_Dialog)
             .setTitle("清理旧的取点数据")
             .setMessage(
-                "会删掉旧版「取点校准」保存的自定义取点（当时存的是 GPS 原始坐标，和现在的底图差约 560 米），" +
+                "会删掉旧版「取点校准」保存的自定义取点（旧版存的坐标和现在的底图对不上，差约 560 米），" +
                     "楼栋默认坐标和其它设置不受影响。\n" +
                     "清理后如果还想要精确到门口，重新去「③ 校园取点校准」站到楼门口点一次即可。"
             )
             .setNegativeButton("取消", null)
             .setPositiveButton("清理") { _, _ ->
                 val n = PoiStore.purgeLegacy(this)
-                status.text = if (n > 0) "已清理 $n 条旧取点，可以重新取点校准。" else "没有需要清理的旧取点：现有取点都是新口径。"
+                status.text = if (n > 0) "已清理 $n 条旧取点，可以重新取点校准。" else "没有需要清理的旧取点：现在的取点都是新的。"
                 android.widget.Toast.makeText(
                     this,
                     if (n > 0) "已清理 $n 条旧取点" else "没有旧取点需要清理",

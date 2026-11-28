@@ -207,14 +207,13 @@ fun scheduleCard(
 }
 
 /**
- * 日视图顶部的日期大图卡：整块圆角照片 + 渐变蒙层 + 手写日期。
+ * 日视图顶部的日期卡：品牌渐变底 + 手写日期。
  *
  * @param dateStr "yyyy-MM-dd"
  * @param weekdayText 例如「星期四」
  * @param weekNo 第几周（<=0 时不显示）
  * @param count 当天安排数量
- * @param caption 图下角的一行小字（装饰用）
- * @param photoRes 背景照片资源
+ * @param caption 底部左侧的一行说明
  */
 fun buildDayHero(
     ctx: Context,
@@ -223,32 +222,16 @@ fun buildDayHero(
     weekNo: Int,
     count: Int,
     isToday: Boolean,
-    caption: String,
-    photoRes: Int
+    caption: String
 ): FrameLayout {
     val hero = FrameLayout(ctx).apply {
-        background = GradientDrawable().apply {
-            cornerRadius = ctx.dp(22).toFloat()
-            setColor(Color.parseColor("#4A7FB5"))
-        }
+        background = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.parseColor("#EE8FAE"), Color.parseColor("#8FB6E8"))
+        ).apply { cornerRadius = ctx.dp(22).toFloat() }
         clipToOutline = true
         elevation = ctx.dp(2).toFloat()
     }
-
-    val photo = ImageView(ctx).apply {
-        setImageResource(photoRes)
-        scaleType = ImageView.ScaleType.CENTER_CROP
-    }
-    hero.addView(photo, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-
-    // 上深下也深一点：日期和底部小字都压得住
-    val scrim = View(ctx).apply {
-        background = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(Color.parseColor("#59000000"), Color.parseColor("#12000000"), Color.parseColor("#80000000"))
-        )
-    }
-    hero.addView(scrim, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
     // 左上：年月 + 大号日
     val left = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }

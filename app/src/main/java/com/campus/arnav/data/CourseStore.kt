@@ -214,17 +214,18 @@ object CourseStore {
         val sp = ctx.getSharedPreferences("zhijia_data", Context.MODE_PRIVATE)
         if (!force && sp.getBoolean("demo_seeded", false)) return
         sp.edit().putBoolean("demo_seeded", true).apply()
+        // 26 软件工程 2 班风格的真实课表（地点取自 core/RouteRepository.kt 的楼栋名）
         val d = listOf(
-            arrayOf("高等数学 A(一)", "张老师", "格物楼 101", 1, 1, 2, "1-16"),
-            arrayOf("大学英语(一)", "李老师", "博学楼 305", 1, 3, 4, "1-16"),
-            arrayOf("程序设计基础", "王老师", "精工楼 204", 2, 1, 2, "1-16"),
-            arrayOf("大学物理", "陈老师", "笃行楼 201", 2, 6, 7, "1-16"),
-            arrayOf("思想道德与法治", "刘老师", "弘毅楼 302", 3, 3, 5, "1-16"),
-            arrayOf("高等数学 A(一)", "张老师", "格物楼 101", 3, 6, 7, "1-16"),
-            arrayOf("体育(一)", "赵老师", "体育场", 4, 8, 9, "1-16"),
-            arrayOf("程序设计实验", "王老师", "精工楼 机房", 4, 10, 12, "3-16"),
-            arrayOf("大学英语(一)", "李老师", "博学楼 305", 5, 1, 2, "1-16"),
-            arrayOf("形势与政策", "孙老师", "明志报告厅", 5, 6, 7, "5-12")
+            arrayOf("高等数学ⅠA", "车素兵", "致广楼-303", 1, 1, 2, "5-16"),
+            arrayOf("大学英语A", "秦思", "致广楼-109", 1, 3, 4, "5-16"),
+            arrayOf("面向对象程序设计Ⅰ(Java)", "王海涛", "精工楼-408", 2, 1, 2, "5-16"),
+            arrayOf("Web前端设计与开发", "李静", "匠心楼-205", 2, 6, 7, "5-16"),
+            arrayOf("思想道德与法治", "刘敏", "弘毅楼-302", 3, 3, 4, "5-16"),
+            arrayOf("大学体育A", "赵磊", "田径场", 3, 8, 9, "5-16"),
+            arrayOf("高等数学ⅠA", "车素兵", "致广楼-303", 4, 1, 2, "5-16"),
+            arrayOf("面向对象程序设计Ⅰ(Java)", "王海涛", "精工楼-402", 4, 6, 7, "5-16"),
+            arrayOf("形势与政策ⅠA", "孙倩", "明志报告厅", 5, 3, 4, "6-16"),
+            arrayOf("职业生涯规划", "陈晨", "笃行楼-北102", 5, 6, 7, "5-12")
         )
         d.forEachIndexed { i, r ->
             addCourse(
@@ -268,7 +269,7 @@ object CourseStore {
         } catch (e: Exception) {
             return JsonImport(-1, 0)
         }
-        // 导入是「覆盖」语义：先把旧课表（含示例课、以前同步/手工加的）全部清掉，避免新旧混在一起
+        // 导入是「覆盖」语义：先把旧课表（示例课、同步导入的、手工加的）全部清掉，避免新旧混在一起
         if (replace) clearCourses(ctx)
         var n = 0
         val seenCourses = courses(ctx).map { courseKey(it) }.toMutableSet()
@@ -389,10 +390,9 @@ object CourseStore {
     )
 
     /**
-     * 带诊断的文本导入：
-     * - 空行、表头行（课程名/星期/节次）自动跳过，不算错误
-     * - 每行都要过一个「能不能认出星期 + 节次」的闸门，认不出就记下来行号和原文
-     * - **一行都没认出来时绝不动旧课表**；认出至少一门才清空旧课表再写入
+     * 带诊断的文本导入：空行、表头行（课程名/星期/节次）自动跳过，不算错误；每行都要
+     * 过「能不能认出星期 + 节次」的闸门，认不出就记下行号和原文。一行都没认出来时不动旧课表，
+     * 认出至少一门才清空旧课表再写入。
      */
     fun importLinesDetailed(ctx: Context, text: String, replace: Boolean = true): ImportReport {
         val normalized = text.replace("\r\n", "\n").replace("\r", "\n")
@@ -481,7 +481,7 @@ object CourseStore {
                 }
             }
 
-            // ② 教务课表是权威数据：清空全部旧课程（示例课、以前导入的、手工加的）与其停课标记。
+            // ② 教务课表是权威数据：清空全部旧课程（示例课、同步导入的、手工加的）与其停课标记。
             //    被跳过的日期已在 ① 里按身份键记下，插完新课程会挂回去。
             d.delete("courses", null, null)
             d.delete("course_skips", null, null)
@@ -690,7 +690,7 @@ object CourseStore {
 
     /**
      * 只做「清洗」：去 BOM、零宽字符、不换行空格。
-     * 注意**不能**在这里剥引号 —— Excel 导出的 CSV 一行里有多组引号
+     * 不能在这里剥引号 —— Excel 导出的 CSV 一行里有多组引号
      * （"思想道德与法治","周五",...），整行去引号会把分隔符一起吃掉。
      * 引号由 splitFields 按字段处理；只有整行被一对引号包住时才剥一次。
      */
@@ -727,7 +727,7 @@ object CourseStore {
     }
 
     /**
-     * 切分一行：支持 | 制表符 英文逗号 中文逗号 分号，**且认得 CSV 的引号**
+     * 切分一行：支持 | 制表符 英文逗号 中文逗号 分号，且认得 CSV 的引号
      * （Excel 导出的 CSV 里 "高等数学,实验" 这种带逗号的字段也能正确切开）
      */
     private fun splitFields(t: String): List<String> {

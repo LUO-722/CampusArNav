@@ -3,6 +3,17 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// 云端通道（DashScope 的 OpenAI 兼容接口）的 Key 从本机 local.properties 读取，编译期注入 BuildConfig；
+// 界面里不出现任何地址或 Key 的配置项。
+def aiProps = new Properties()
+def aiFile = rootProject.file("local.properties")
+if (aiFile.exists()) aiFile.withInputStream { aiProps.load(it) }
+def aiKey = aiProps.getProperty("dashscope.key", System.getenv("DASHSCOPE_KEY") ?: "")
+def aiBase = aiProps.getProperty("dashscope.base", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+def aiModels = aiProps.getProperty("dashscope.models",
+        "qwen-max,qwen-plus,qwen-flash,deepseek-v4.1-flash,deepseek-v4-flash-0731,qwen-long")
+def aiVisionModels = aiProps.getProperty("dashscope.vision_models", "qwen3-vl-plus")
+
 android {
     namespace 'com.campus.arnav'
     compileSdk 36
@@ -11,34 +22,23 @@ android {
         applicationId "com.campus.arnav"
         minSdk 24
         targetSdk 36
-        versionCode 84
-        versionName "0.25.0"
+        versionCode 85
+        versionName "0.26.0"
 
-        // 内置云端通道（阿里云百炼 / DashScope OpenAI 兼容）。
-        // Key 只从本机 local.properties 读取，编译进包，界面上不出现任何接口/Key 配置。
-        def aiProps = new Properties()
-        def aiFile = rootProject.file("local.properties")
-        if (aiFile.exists()) { aiFile.withInputStream { aiProps.load(it) } }
-        def aiKey = aiProps.getProperty("dashscope.key", System.getenv("DASHSCOPE_KEY") ?: "")
-        def aiBase = aiProps.getProperty("dashscope.base", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-        def aiModels = aiProps.getProperty("dashscope.models", "qwen-plus,qwen-max,qwen-flash,qwen-long,qwen3-vl-plus")
-        def aiModel = aiModels.split(",")[0].trim()
         buildConfigField "String", "DASHSCOPE_KEY", "\"${aiKey}\""
         buildConfigField "String", "DASHSCOPE_BASE", "\"${aiBase}\""
-        buildConfigField "String", "DASHSCOPE_MODEL", "\"${aiModel}\""
+        buildConfigField "String", "DASHSCOPE_MODEL", "\"${aiModels.split(",")[0].trim()}\""
         buildConfigField "String", "DASHSCOPE_MODELS", "\"${aiModels}\""
-    def aiVisionModels = aiProps.getProperty("dashscope.vision_models", "qwen3-vl-plus")
-    buildConfigField "String", "DASHSCOPE_VISION_MODEL", "\"${aiVisionModels.split(',')[0].trim()}\""
-    buildConfigField "String", "DASHSCOPE_VISION_MODELS", "\"${aiVisionModels}\""
+        buildConfigField "String", "DASHSCOPE_VISION_MODEL", "\"${aiVisionModels.split(",")[0].trim()}\""
+        buildConfigField "String", "DASHSCOPE_VISION_MODELS", "\"${aiVisionModels}\""
 
-        // 只保留 arm64（本机 2510DRK44C 是 arm64；ML Kit 中文 OCR 的 so 只打一份，省掉一半 native 体积）。
-        // 代价：x86 模拟器 / 32 位老机型装不了，见 README「数据与限制」。
+        // 只打 arm64 一份 native 库：ML Kit 的 so 很大，打包全部 ABI 会让安装包翻倍。
+        // 代价是 x86 模拟器装不上。
         ndk { abiFilters 'arm64-v8a' }
     }
 
-    // 发布签名：keystore.properties 与 zhijia-release.jks 都放项目根，且都已进 .gitignore（不入库）。
-    // 本机没配这两个文件时就不创建 release 签名配置，日常 assembleDebug 与未签名 assembleRelease 都不会因此失败。
-    // 交付给同学安装的仍然是 debug 签名（覆盖安装不丢课表/聊天记录），不要随便换成 release。
+    // 发布签名材料放项目根并被 .gitignore 忽略；没有这两个文件时不创建 release 配置，
+    // 因此 assembleDebug 不受影响。对外分发仍用 debug 签名，保证覆盖安装不丢本地数据。
     signingConfigs {
         if (rootProject.file("keystore.properties").exists()) {
             release {
@@ -84,6 +84,6 @@ dependencies {
     implementation "androidx.camera:camera-lifecycle:$camerax"
     implementation "androidx.camera:camera-view:$camerax"
 
-    // 本机离线 OCR：ML Kit 中文文字识别（模型随 APK 打包，不联网、不上传图片、无需 Key）
+    // 本机文字识别：模型随包分发，不联网也不上传图片
     implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
 }

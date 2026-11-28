@@ -289,12 +289,52 @@ object AgentEngine {
         }
     }
 
+
+    /**
+     * 取第一个完整的 JSON 对象：模型有时在 JSON 后面继续写「<tool_call>参考资料…」，
+     * 用 lastIndexOf('}') 会把后面的括号也包进去导致整体解析失败。
+     */
+    private fun extractFirstObject(s: String): String? {
+        val start = s.indexOf('{')
+        if (start < 0) return null
+        var depth = 0
+        var inStr = false
+        var esc = false
+        for (i in start until s.length) {
+            val c = s[i]
+            if (inStr) {
+                when {
+                    esc -> esc = false
+                    c == '\\' -> esc = true
+                    c == '"' -> inStr = false
+                }
+            } else {
+                when (c) {
+                    '"' -> inStr = true
+                    '{' -> depth++
+                    '}' -> {
+                        depth--
+                        if (depth == 0) return s.substring(start, i + 1)
+                    }
+                }
+            }
+        }
+        return null
+    }
+
     private fun parse(raw: String): JSONObject? {
         var t = raw.trim()
         if (t.startsWith("```")) {
             t = t.removePrefix("```json").removePrefix("```JSON").removePrefix("```").trim()
             val i = t.lastIndexOf("```")
             if (i >= 0) t = t.substring(0, i).trim()
+        }
+        extractFirstObject(t)?.let { obj ->
+            return try {
+                JSONObject(obj)
+            } catch (e: Exception) {
+                null
+            }
         }
         val a = t.indexOf('{')
         val b = t.lastIndexOf('}')
@@ -332,6 +372,7 @@ object AgentEngine {
         }
         // 去最外层引号（模型偶尔把整句回答包在引号里）
         jsonString(t)?.let { t = it.trim() }
+        t = AnswerRules.trimArtifacts(AnswerRules.unescapeLiteral(t))
         if (t.length >= 2 && t.startsWith("\"") && t.endsWith("\"")) t = t.substring(1, t.length - 1).trim()
         t = t.removePrefix("\"").removeSuffix("\"").trim()
         return t.ifBlank { "这个问题知识库里没有收录，换个说法或者问细一点再试试。" }
